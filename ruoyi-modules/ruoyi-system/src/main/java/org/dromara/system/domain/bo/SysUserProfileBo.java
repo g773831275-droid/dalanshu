@@ -6,7 +6,6 @@ import jakarta.validation.constraints.Size;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
-import org.dromara.common.core.constant.RegexConstants;
 import org.dromara.common.core.xss.Xss;
 import org.dromara.common.mybatis.core.domain.BaseEntity;
 import org.dromara.common.sensitive.annotation.Sensitive;
@@ -41,7 +40,7 @@ public class SysUserProfileBo extends BaseEntity {
     /**
      * 手机号码
      */
-    @Pattern(regexp = RegexConstants.MOBILE, message = "手机号格式不正确")
+    @Pattern(regexp = "^\\+[1-9]\\d{7,14}$", message = "手机号必须使用国际 E.164 格式，例如 +8613800138000")
     @Sensitive(strategy = SensitiveStrategy.PHONE)
     private String phonenumber;
 

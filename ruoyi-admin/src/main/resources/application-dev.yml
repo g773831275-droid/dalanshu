@@ -48,7 +48,7 @@ spring:
           # jdbc 所有参数配置参考 https://lionli.blog.csdn.net/article/details/122018562
           # rewriteBatchedStatements=true 批处理优化 大幅提升批量插入更新删除性能(对数据库有性能损耗 使用批量操作应考虑性能问题)
           url: jdbc:mysql://localhost:3306/dalanshu?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=true&serverTimezone=GMT%2B8&autoReconnect=true&rewriteBatchedStatements=true&allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true
-          username: root
+          username: dalanshu_app
           password: 123456
 #        # 从库数据源
 #        slave:
@@ -132,18 +132,20 @@ redisson:
     subscriptionConnectionPoolSize: 50
 
 --- # mail 邮件发送
+# TODO DALANSHU_MAIL_PROVIDER: 正式环境整体替换为火山引擎邮件推送
+# 首期固定使用 QQ SMTP，授权码仍必须通过环境变量提供，禁止提交到 Git。
 mail:
-  enabled: false
-  host: smtp.163.com
+  enabled: true
+  host: smtp.qq.com
   port: 465
   # 是否需要用户名密码验证
   auth: true
   # 发送方，遵循RFC-822标准
-  from: xxx@163.com
+  from: 858178877@qq.com
   # 用户名（注意：如果使用foxmail邮箱，此处user为qq号）
-  user: xxx@163.com
+  user: 858178877@qq.com
   # 密码（注意，某些邮箱需要为SMTP服务单独设置密码，详情查看相关帮助）
-  pass: xxxxxxxxxx
+  pass: ${DALANSHU_MAIL_PASSWORD:}
   # 使用 STARTTLS安全连接，STARTTLS是对纯文本通信协议的扩展。
   starttlsEnable: true
   # 使用SSL安全连接

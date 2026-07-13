@@ -13,6 +13,8 @@ import org.dromara.common.core.constant.Constants;
 import org.dromara.common.core.constant.GlobalConstants;
 import org.dromara.common.core.domain.R;
 import org.dromara.common.core.exception.ServiceException;
+import org.dromara.common.core.exception.user.CaptchaException;
+import org.dromara.common.core.exception.user.CaptchaExpireException;
 import org.dromara.common.core.utils.SpringUtils;
 import org.dromara.common.core.utils.StringUtils;
 import org.dromara.common.mail.config.properties.MailProperties;
@@ -82,11 +84,18 @@ public class CaptchaController {
      * @param email 邮箱
      */
     @GetMapping("/resource/email/code")
-    public R<Void> emailCode(@NotBlank(message = "{user.email.not.blank}") String email) {
+    public R<Void> emailCode(@NotBlank(message = "{user.email.not.blank}") String email,
+                             @NotBlank(message = "验证码用途不能为空") String purpose,
+                             @NotBlank(message = "图形验证码标识不能为空") String uuid,
+                             @NotBlank(message = "图形验证码不能为空") String code) {
         if (!mailProperties.getEnabled()) {
             return R.fail("当前系统没有开启邮箱功能！");
         }
-        SpringUtils.getAopProxy(this).emailCodeImpl(email);
+        if (!StringUtils.equalsAny(purpose, "register", "recover")) {
+            return R.fail("验证码用途不正确");
+        }
+        validateCaptcha(uuid, code);
+        SpringUtils.getAopProxy(this).emailCodeImpl(email.trim().toLowerCase(), purpose);
         return R.ok();
     }
 
@@ -95,15 +104,28 @@ public class CaptchaController {
      * 独立方法避免验证码关闭之后仍然走限流
      */
     @RateLimiter(key = "#email", time = 60, count = 1)
-    public void emailCodeImpl(String email) {
-        String key = GlobalConstants.CAPTCHA_CODE_KEY + email;
-        String code = RandomUtil.randomNumbers(4);
+    public void emailCodeImpl(String email, String purpose) {
+        String key = GlobalConstants.CAPTCHA_CODE_KEY + "email:" + purpose + ":" + email;
+        String code = RandomUtil.randomNumbers(6);
         RedisUtils.setCacheObject(key, code, Duration.ofMinutes(Constants.CAPTCHA_EXPIRATION));
         try {
-            MailUtils.sendText(email, "登录验证码", "您本次验证码为：" + code + "，有效性为" + Constants.CAPTCHA_EXPIRATION + "分钟，请尽快填写。");
+            String scene = StringUtils.equals(purpose, "register") ? "注册" : "找回密码";
+            MailUtils.sendText(email, scene + "验证码", "您本次" + scene + "验证码为：" + code + "，有效期为" + Constants.CAPTCHA_EXPIRATION + "分钟，请尽快填写。");
         } catch (Exception e) {
             log.error("验证码短信发送异常 => {}", e.getMessage());
             throw new ServiceException(e.getMessage());
+        }
+    }
+
+    private void validateCaptcha(String uuid, String code) {
+        String key = GlobalConstants.CAPTCHA_CODE_KEY + uuid;
+        String captcha = RedisUtils.getCacheObject(key);
+        RedisUtils.deleteObject(key);
+        if (captcha == null) {
+            throw new CaptchaExpireException();
+        }
+        if (!StringUtils.equalsIgnoreCase(code, captcha)) {
+            throw new CaptchaException();
         }
     }
 

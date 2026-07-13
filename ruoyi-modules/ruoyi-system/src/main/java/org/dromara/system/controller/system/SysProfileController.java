@@ -65,14 +65,20 @@ public class SysProfileController extends BaseController {
     @Log(title = "个人信息", businessType = BusinessType.UPDATE)
     @PutMapping
     public R<Void> updateProfile(@Validated @RequestBody SysUserProfileBo profile) {
+        SysUserVo currentUser = userService.selectUserById(LoginHelper.getUserId());
+        if (StringUtils.isNotBlank(profile.getEmail())
+            && !StringUtils.equalsIgnoreCase(profile.getEmail().trim(), currentUser.getEmail())) {
+            return R.fail("首期暂不支持修改注册邮箱");
+        }
         SysUserBo user = BeanUtil.toBean(profile, SysUserBo.class);
         user.setUserId(LoginHelper.getUserId());
+        user.setEmail(null);
+        if (StringUtils.isNotBlank(user.getPhonenumber())) {
+            user.setPhonenumber(user.getPhonenumber().trim());
+        }
         String username = LoginHelper.getUsername();
         if (StringUtils.isNotEmpty(user.getPhonenumber()) && !userService.checkPhoneUnique(user)) {
             return R.fail("修改用户'" + username + "'失败，手机号码已存在");
-        }
-        if (StringUtils.isNotEmpty(user.getEmail()) && !userService.checkEmailUnique(user)) {
-            return R.fail("修改用户'" + username + "'失败，邮箱账号已存在");
         }
         int rows = DataPermissionHelper.ignore(() -> userService.updateUserProfile(user));
         if (rows > 0) {

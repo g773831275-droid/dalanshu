@@ -14,12 +14,10 @@ import org.hibernate.validator.constraints.Length;
 @EqualsAndHashCode(callSuper = true)
 public class PasswordLoginBody extends LoginBody {
 
-    /**
-     * 用户名
-     */
-    @NotBlank(message = "{user.username.not.blank}")
-    @Length(min = 2, max = 30, message = "{user.username.length.valid}")
-    private String username;
+    /** 邮箱、手机号或兼容原有用户名 */
+    @NotBlank(message = "账号不能为空")
+    @Length(min = 2, max = 255, message = "账号长度必须在{min}到{max}个字符之间")
+    private String account;
 
     /**
      * 用户密码

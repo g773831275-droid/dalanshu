@@ -7,6 +7,8 @@ import cn.hutool.core.codec.Base64;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.ObjectUtil;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import me.zhyd.oauth.model.AuthResponse;
@@ -14,8 +16,10 @@ import me.zhyd.oauth.model.AuthUser;
 import me.zhyd.oauth.request.AuthRequest;
 import me.zhyd.oauth.utils.AuthStateUtils;
 import org.dromara.common.core.constant.SystemConstants;
+import org.dromara.common.core.constant.TenantConstants;
 import org.dromara.common.core.domain.R;
 import org.dromara.common.core.domain.model.LoginBody;
+import org.dromara.common.core.domain.model.RecoverPasswordBody;
 import org.dromara.common.core.domain.model.RegisterBody;
 import org.dromara.common.core.domain.model.SocialLoginBody;
 import org.dromara.common.core.utils.*;
@@ -43,6 +47,7 @@ import org.dromara.web.domain.vo.TenantListVo;
 import org.dromara.web.service.IAuthStrategy;
 import org.dromara.web.service.SysLoginService;
 import org.dromara.web.service.SysRegisterService;
+import org.dromara.web.service.impl.PasswordAuthStrategy;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -62,6 +67,7 @@ import java.util.concurrent.TimeUnit;
  */
 @Slf4j
 @SaIgnore
+@Validated
 @RequiredArgsConstructor
 @RestController
 @RequestMapping("/auth")
@@ -75,6 +81,7 @@ public class AuthController {
     private final ISysSocialService socialUserService;
     private final ISysClientService clientService;
     private final ScheduledExecutorService scheduledExecutorService;
+    private final PasswordAuthStrategy passwordAuthStrategy;
 
 
     /**
@@ -86,6 +93,9 @@ public class AuthController {
     @ApiEncrypt
     @PostMapping("/login")
     public R<LoginVo> login(@RequestBody String body) {
+        Map<String, Object> loginParams = JsonUtils.parseMap(body);
+        loginParams.put("tenantId", TenantConstants.DEFAULT_TENANT_ID);
+        body = JsonUtils.toJsonString(loginParams);
         LoginBody loginBody = JsonUtils.parseObject(body, LoginBody.class);
         ValidatorUtils.validate(loginBody);
         // 授权类型和客户端id
@@ -188,12 +198,38 @@ public class AuthController {
      */
     @ApiEncrypt
     @PostMapping("/register")
-    public R<Void> register(@Validated @RequestBody RegisterBody user) {
+    public R<LoginVo> register(@Validated @RequestBody RegisterBody user) {
+        user.setTenantId(TenantConstants.DEFAULT_TENANT_ID);
         if (!configService.selectRegisterEnabled(user.getTenantId())) {
             return R.fail("当前系统没有开启注册功能！");
         }
-        registerService.register(user);
-        return R.ok();
+        SysClientVo client = clientService.queryByClientId(user.getClientId());
+        if (ObjectUtil.isNull(client) || !SystemConstants.NORMAL.equals(client.getStatus())
+            || !StringUtils.contains(client.getGrantType(), "password")) {
+            return R.fail("客户端不支持密码登录");
+        }
+        String username = registerService.register(user);
+        return R.ok(passwordAuthStrategy.loginAfterRegister(username, user.getPassword(), user.getTenantId(), client));
+    }
+
+    @ApiEncrypt
+    @PostMapping("/password/recover")
+    public R<Void> recoverPassword(@Validated @RequestBody RecoverPasswordBody body) {
+        SysClientVo client = clientService.queryByClientId(body.getClientId());
+        if (ObjectUtil.isNull(client) || !SystemConstants.NORMAL.equals(client.getStatus())) {
+            return R.fail("客户端不可用");
+        }
+        registerService.recoverPassword(body, TenantConstants.DEFAULT_TENANT_ID);
+        return R.ok("密码重置成功，请重新登录");
+    }
+
+    @RateLimiter(key = "#email", time = 60, count = 20)
+    @GetMapping("/email/check")
+    public R<Boolean> checkEmail(
+        @NotBlank(message = "邮箱不能为空")
+        @Email(message = "邮箱格式不正确")
+        @RequestParam String email) {
+        return R.ok(registerService.isEmailAvailable(email, TenantConstants.DEFAULT_TENANT_ID));
     }
 
     /**

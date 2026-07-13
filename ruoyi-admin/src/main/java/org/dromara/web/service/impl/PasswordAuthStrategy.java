@@ -52,7 +52,7 @@ public class PasswordAuthStrategy implements IAuthStrategy {
         PasswordLoginBody loginBody = JsonUtils.parseObject(body, PasswordLoginBody.class);
         ValidatorUtils.validate(loginBody);
         String tenantId = loginBody.getTenantId();
-        String username = loginBody.getUsername();
+        String account = loginBody.getAccount().trim();
         String password = loginBody.getPassword();
         String code = loginBody.getCode();
         String uuid = loginBody.getUuid();
@@ -60,11 +60,19 @@ public class PasswordAuthStrategy implements IAuthStrategy {
         boolean captchaEnabled = captchaProperties.getEnable();
         // 验证码开关
         if (captchaEnabled) {
-            validateCaptcha(tenantId, username, code, uuid);
+            validateCaptcha(tenantId, account, code, uuid);
         }
+        return login(account, password, tenantId, client);
+    }
+
+    public LoginVo loginAfterRegister(String username, String password, String tenantId, SysClientVo client) {
+        return login(username, password, tenantId, client);
+    }
+
+    private LoginVo login(String account, String password, String tenantId, SysClientVo client) {
         LoginUser loginUser = TenantHelper.dynamic(tenantId, () -> {
-            SysUserVo user = loadUserByUsername(username);
-            loginService.checkLogin(LoginType.PASSWORD, tenantId, username, () -> !BCrypt.checkpw(password, user.getPassword()));
+            SysUserVo user = loadUserByAccount(account);
+            loginService.checkLogin(LoginType.PASSWORD, tenantId, user.getUserName(), () -> !BCrypt.checkpw(password, user.getPassword()));
             // 此处可根据登录用户的数据不同 自行创建 loginUser
             return loginService.buildLoginUser(user);
         });
@@ -108,14 +116,18 @@ public class PasswordAuthStrategy implements IAuthStrategy {
         }
     }
 
-    private SysUserVo loadUserByUsername(String username) {
-        SysUserVo user = userMapper.selectVoOne(new LambdaQueryWrapper<SysUser>().eq(SysUser::getUserName, username));
+    private SysUserVo loadUserByAccount(String account) {
+        String normalized = account.contains("@") ? account.toLowerCase() : account;
+        SysUserVo user = userMapper.selectVoOne(new LambdaQueryWrapper<SysUser>()
+            .and(w -> w.eq(SysUser::getEmail, normalized)
+                .or().eq(SysUser::getPhonenumber, normalized)
+                .or().eq(SysUser::getUserName, normalized)));
         if (ObjectUtil.isNull(user)) {
-            log.info("登录用户：{} 不存在.", username);
-            throw new UserException("user.not.exists", username);
+            log.info("登录账号：{} 不存在.", normalized);
+            throw new UserException("user.not.exists", normalized);
         } else if (SystemConstants.DISABLE.equals(user.getStatus())) {
-            log.info("登录用户：{} 已被停用.", username);
-            throw new UserException("user.blocked", username);
+            log.info("登录账号：{} 已被停用.", normalized);
+            throw new UserException("user.blocked", normalized);
         }
         return user;
     }
