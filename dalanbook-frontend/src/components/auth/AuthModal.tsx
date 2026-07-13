@@ -1,0 +1,599 @@
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { z } from "zod";
+import { Eye, EyeOff, Loader2, X, Mail, Phone } from "lucide-react";
+import { authStore, useAuthModal } from "@/lib/authStore";
+
+type Tab = "login" | "register";
+type Method = "email" | "phone";
+
+const phoneRegex = /^1[3-9]\d{9}$/;
+const codeRegex = /^\d{6}$/;
+
+const emailLoginSchema = z.object({
+  email: z.string().trim().email("请输入正确的邮箱"),
+  password: z.string().min(6, "密码至少 6 位").max(64),
+});
+const phoneLoginSchema = z.object({
+  phone: z.string().regex(phoneRegex, "请输入正确的手机号"),
+  code: z.string().regex(codeRegex, "验证码为 6 位数字"),
+});
+const emailRegisterSchema = z
+  .object({
+    nickname: z.string().trim().min(2, "昵称至少 2 位").max(20),
+    email: z.string().trim().email("请输入正确的邮箱"),
+    password: z.string().min(6, "密码至少 6 位").max(64),
+    confirm: z.string(),
+    agree: z.literal(true, { message: "请阅读并同意用户协议" }),
+  })
+  .refine((v) => v.password === v.confirm, {
+    path: ["confirm"],
+    message: "两次密码不一致",
+  });
+const phoneRegisterSchema = z.object({
+  nickname: z.string().trim().min(2, "昵称至少 2 位").max(20),
+  phone: z.string().regex(phoneRegex, "请输入正确的手机号"),
+  code: z.string().regex(codeRegex, "验证码为 6 位数字"),
+  agree: z.literal(true, { message: "请阅读并同意用户协议" }),
+});
+
+const inputCls =
+  "h-11 w-full rounded-[10px] border border-[color:var(--border-default)] bg-white/70 px-3 text-[14px] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] placeholder:text-text-tertiary focus:border-black/30 focus:outline-none focus:ring-[3px] focus:ring-black/5";
+
+function Field({
+  label,
+  error,
+  children,
+}: {
+  label: string;
+  error?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="text-[12.5px] font-medium text-text-secondary">
+        {label}
+      </span>
+      <div className="mt-1.5">{children}</div>
+      {error && (
+        <span className="mt-1 block text-[11.5px] text-[#D94B4B]">{error}</span>
+      )}
+    </label>
+  );
+}
+
+function useCountdown() {
+  const [left, setLeft] = useState(0);
+  useEffect(() => {
+    if (left <= 0) return;
+    const t = setTimeout(() => setLeft((v) => v - 1), 1000);
+    return () => clearTimeout(t);
+  }, [left]);
+  return { left, start: () => setLeft(60) };
+}
+
+export function AuthModal() {
+  const state = useAuthModal();
+  const [tab, setTab] = useState<Tab>(state.tab);
+  const [method, setMethod] = useState<Method>("email");
+
+  useEffect(() => {
+    if (state.open) {
+      setTab(state.tab);
+      setMethod("email");
+    }
+  }, [state.open, state.tab]);
+
+  if (!state.open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[90] flex items-end justify-center bg-black/45 backdrop-blur-sm md:items-center"
+      onClick={() => authStore.closeAuth()}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="glass-elevated relative w-full max-w-[420px] rounded-t-[20px] border border-[color:var(--border)] p-6 md:rounded-[20px]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={() => authStore.closeAuth()}
+          className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-black/[0.04] hover:text-foreground"
+          aria-label="关闭"
+        >
+          <X className="h-4 w-4" strokeWidth={1.75} />
+        </button>
+
+        <h2 className="text-[20px] font-semibold tracking-[-0.02em] text-foreground">
+          {tab === "login" ? "登录大蓝书" : "加入大蓝书"}
+        </h2>
+        <p className="mt-1 text-[13px] text-text-secondary">
+          {state.action
+            ? `登录后即可${state.action}`
+            : tab === "login"
+              ? "登录后继续你的阅读与讨论。"
+              : "注册后可以加入圈子、发布笔记与提问。"}
+        </p>
+
+        {/* Tabs */}
+        <div className="mt-5 inline-flex self-start rounded-[10px] border border-[color:var(--border)] bg-white/60 p-1 text-[13px]">
+          {(["login", "register"] as const).map((k) => (
+            <button
+              key={k}
+              onClick={() => setTab(k)}
+              className={
+                "rounded-[8px] px-3 py-1.5 transition-colors " +
+                (tab === k
+                  ? "bg-foreground text-white"
+                  : "text-text-secondary hover:text-foreground")
+              }
+            >
+              {k === "login" ? "登录" : "注册"}
+            </button>
+          ))}
+        </div>
+
+        {/* Method switch */}
+        <div className="mt-4 flex items-center gap-1 text-[12.5px]">
+          {(
+            [
+              { k: "email", label: "邮箱", Icon: Mail },
+              { k: "phone", label: "手机号", Icon: Phone },
+            ] as const
+          ).map(({ k, label, Icon }) => (
+            <button
+              key={k}
+              onClick={() => setMethod(k)}
+              className={
+                "inline-flex items-center gap-1.5 rounded-[8px] px-2.5 py-1 transition-colors " +
+                (method === k
+                  ? "bg-[color:var(--action-muted)] text-foreground"
+                  : "text-text-tertiary hover:text-foreground")
+              }
+            >
+              <Icon className="h-3.5 w-3.5" strokeWidth={1.75} />
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-4">
+          {tab === "login" && method === "email" && <EmailLoginForm />}
+          {tab === "login" && method === "phone" && <PhoneLoginForm />}
+          {tab === "register" && method === "email" && <EmailRegisterForm />}
+          {tab === "register" && method === "phone" && <PhoneRegisterForm />}
+        </div>
+
+        <div className="my-5 flex items-center gap-3 text-[11.5px] text-text-tertiary">
+          <span className="h-px flex-1 bg-[color:var(--border)]" />
+          或使用以下方式
+          <span className="h-px flex-1 bg-[color:var(--border)]" />
+        </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { label: "微信", color: "#1AAD19" },
+            { label: "Apple", color: "#000" },
+            { label: "Google", color: "#4285F4" },
+          ].map((s) => (
+            <button
+              key={s.label}
+              className="flex h-10 items-center justify-center gap-1.5 rounded-[10px] border border-[color:var(--border-default)] bg-white/60 text-[12.5px] text-text-secondary transition-colors hover:text-foreground"
+            >
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: s.color }}
+              />
+              {s.label}
+            </button>
+          ))}
+        </div>
+
+        <p className="mt-4 text-center text-[11.5px] leading-relaxed text-text-tertiary">
+          继续即表示同意《用户协议》与《隐私政策》
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function useAfterAuth() {
+  const navigate = useNavigate();
+  return (name: string) => {
+    const s = authStore.getModal();
+    authStore.set({ id: "me", name });
+    authStore.closeAuth();
+    if (s.redirect) navigate({ to: s.redirect });
+  };
+}
+
+function SubmitBtn({
+  loading,
+  children,
+}: {
+  loading: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="submit"
+      disabled={loading}
+      className="mt-2 flex h-11 w-full items-center justify-center gap-2 rounded-[12px] bg-foreground text-[14px] font-medium text-white transition-colors hover:bg-[color:var(--action-primary-hover)] disabled:opacity-70"
+    >
+      {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />}
+      {children}
+    </button>
+  );
+}
+
+function EmailLoginForm() {
+  const after = useAfterAuth();
+  const [values, setValues] = useState({ email: "", password: "" });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showPwd, setShowPwd] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  return (
+    <form
+      className="space-y-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const r = emailLoginSchema.safeParse(values);
+        if (!r.success) {
+          const errs: Record<string, string> = {};
+          for (const i of r.error.issues) errs[String(i.path[0])] = i.message;
+          setErrors(errs);
+          return;
+        }
+        setErrors({});
+        setLoading(true);
+        setTimeout(() => after(values.email.split("@")[0] || "我"), 500);
+      }}
+    >
+      <Field label="邮箱" error={errors.email}>
+        <input
+          className={inputCls}
+          placeholder="you@dalanbook.com"
+          value={values.email}
+          onChange={(e) =>
+            setValues((v) => ({ ...v, email: e.target.value }))
+          }
+          autoComplete="username"
+        />
+      </Field>
+      <Field label="密码" error={errors.password}>
+        <div className="relative">
+          <input
+            className={inputCls + " pr-10"}
+            type={showPwd ? "text" : "password"}
+            placeholder="至少 6 位"
+            value={values.password}
+            onChange={(e) =>
+              setValues((v) => ({ ...v, password: e.target.value }))
+            }
+            autoComplete="current-password"
+          />
+          <button
+            type="button"
+            onClick={() => setShowPwd((v) => !v)}
+            className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center text-text-tertiary hover:text-foreground"
+            aria-label={showPwd ? "隐藏密码" : "显示密码"}
+          >
+            {showPwd ? (
+              <EyeOff className="h-4 w-4" strokeWidth={1.75} />
+            ) : (
+              <Eye className="h-4 w-4" strokeWidth={1.75} />
+            )}
+          </button>
+        </div>
+      </Field>
+      <SubmitBtn loading={loading}>登录</SubmitBtn>
+    </form>
+  );
+}
+
+function CodeButton({
+  disabled,
+  onSend,
+  left,
+}: {
+  disabled: boolean;
+  onSend: () => void;
+  left: number;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled || left > 0}
+      onClick={onSend}
+      className="absolute right-1.5 top-1/2 h-8 -translate-y-1/2 rounded-[8px] px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-black/[0.04] disabled:cursor-not-allowed disabled:text-text-tertiary"
+    >
+      {left > 0 ? `${left}s 后重发` : "获取验证码"}
+    </button>
+  );
+}
+
+function PhoneLoginForm() {
+  const after = useAfterAuth();
+  const [values, setValues] = useState({ phone: "", code: "" });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(false);
+  const cd = useCountdown();
+  const phoneOk = useMemo(() => phoneRegex.test(values.phone), [values.phone]);
+
+  return (
+    <form
+      className="space-y-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const r = phoneLoginSchema.safeParse(values);
+        if (!r.success) {
+          const errs: Record<string, string> = {};
+          for (const i of r.error.issues) errs[String(i.path[0])] = i.message;
+          setErrors(errs);
+          return;
+        }
+        setErrors({});
+        setLoading(true);
+        setTimeout(() => after(values.phone.slice(-4) + " 用户"), 500);
+      }}
+    >
+      <Field label="手机号" error={errors.phone}>
+        <input
+          className={inputCls}
+          placeholder="11 位手机号"
+          value={values.phone}
+          inputMode="numeric"
+          maxLength={11}
+          onChange={(e) =>
+            setValues((v) => ({
+              ...v,
+              phone: e.target.value.replace(/\D/g, ""),
+            }))
+          }
+          autoComplete="tel"
+        />
+      </Field>
+      <Field label="验证码" error={errors.code}>
+        <div className="relative">
+          <input
+            className={inputCls + " pr-28"}
+            placeholder="6 位数字"
+            value={values.code}
+            inputMode="numeric"
+            maxLength={6}
+            onChange={(e) =>
+              setValues((v) => ({
+                ...v,
+                code: e.target.value.replace(/\D/g, ""),
+              }))
+            }
+          />
+          <CodeButton
+            disabled={!phoneOk}
+            left={cd.left}
+            onSend={() => cd.start()}
+          />
+        </div>
+      </Field>
+      <SubmitBtn loading={loading}>登录</SubmitBtn>
+    </form>
+  );
+}
+
+function EmailRegisterForm() {
+  const after = useAfterAuth();
+  const [values, setValues] = useState({
+    nickname: "",
+    email: "",
+    password: "",
+    confirm: "",
+    agree: false,
+  });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showPwd, setShowPwd] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  return (
+    <form
+      className="space-y-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const r = emailRegisterSchema.safeParse(values);
+        if (!r.success) {
+          const errs: Record<string, string> = {};
+          for (const i of r.error.issues) errs[String(i.path[0])] = i.message;
+          setErrors(errs);
+          return;
+        }
+        setErrors({});
+        setLoading(true);
+        setTimeout(() => after(values.nickname), 600);
+      }}
+    >
+      <Field label="昵称" error={errors.nickname}>
+        <input
+          className={inputCls}
+          placeholder="给自己取个名字"
+          value={values.nickname}
+          maxLength={20}
+          onChange={(e) =>
+            setValues((v) => ({ ...v, nickname: e.target.value }))
+          }
+        />
+      </Field>
+      <Field label="邮箱" error={errors.email}>
+        <input
+          className={inputCls}
+          placeholder="you@dalanbook.com"
+          value={values.email}
+          onChange={(e) =>
+            setValues((v) => ({ ...v, email: e.target.value }))
+          }
+          autoComplete="email"
+        />
+      </Field>
+      <Field label="密码" error={errors.password}>
+        <div className="relative">
+          <input
+            className={inputCls + " pr-10"}
+            type={showPwd ? "text" : "password"}
+            placeholder="至少 6 位"
+            value={values.password}
+            onChange={(e) =>
+              setValues((v) => ({ ...v, password: e.target.value }))
+            }
+            autoComplete="new-password"
+          />
+          <button
+            type="button"
+            onClick={() => setShowPwd((v) => !v)}
+            className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center text-text-tertiary hover:text-foreground"
+            aria-label={showPwd ? "隐藏密码" : "显示密码"}
+          >
+            {showPwd ? (
+              <EyeOff className="h-4 w-4" strokeWidth={1.75} />
+            ) : (
+              <Eye className="h-4 w-4" strokeWidth={1.75} />
+            )}
+          </button>
+        </div>
+      </Field>
+      <Field label="确认密码" error={errors.confirm}>
+        <input
+          className={inputCls}
+          type={showPwd ? "text" : "password"}
+          placeholder="再输入一次"
+          value={values.confirm}
+          onChange={(e) =>
+            setValues((v) => ({ ...v, confirm: e.target.value }))
+          }
+          autoComplete="new-password"
+        />
+      </Field>
+      <AgreeCheckbox
+        checked={values.agree}
+        onChange={(v) => setValues((s) => ({ ...s, agree: v }))}
+        error={errors.agree}
+      />
+      <SubmitBtn loading={loading}>注册</SubmitBtn>
+    </form>
+  );
+}
+
+function PhoneRegisterForm() {
+  const after = useAfterAuth();
+  const [values, setValues] = useState({
+    nickname: "",
+    phone: "",
+    code: "",
+    agree: false,
+  });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(false);
+  const cd = useCountdown();
+  const phoneOk = useMemo(() => phoneRegex.test(values.phone), [values.phone]);
+
+  return (
+    <form
+      className="space-y-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const r = phoneRegisterSchema.safeParse(values);
+        if (!r.success) {
+          const errs: Record<string, string> = {};
+          for (const i of r.error.issues) errs[String(i.path[0])] = i.message;
+          setErrors(errs);
+          return;
+        }
+        setErrors({});
+        setLoading(true);
+        setTimeout(() => after(values.nickname), 600);
+      }}
+    >
+      <Field label="昵称" error={errors.nickname}>
+        <input
+          className={inputCls}
+          placeholder="给自己取个名字"
+          value={values.nickname}
+          maxLength={20}
+          onChange={(e) =>
+            setValues((v) => ({ ...v, nickname: e.target.value }))
+          }
+        />
+      </Field>
+      <Field label="手机号" error={errors.phone}>
+        <input
+          className={inputCls}
+          placeholder="11 位手机号"
+          value={values.phone}
+          inputMode="numeric"
+          maxLength={11}
+          onChange={(e) =>
+            setValues((v) => ({
+              ...v,
+              phone: e.target.value.replace(/\D/g, ""),
+            }))
+          }
+          autoComplete="tel"
+        />
+      </Field>
+      <Field label="验证码" error={errors.code}>
+        <div className="relative">
+          <input
+            className={inputCls + " pr-28"}
+            placeholder="6 位数字"
+            value={values.code}
+            inputMode="numeric"
+            maxLength={6}
+            onChange={(e) =>
+              setValues((v) => ({
+                ...v,
+                code: e.target.value.replace(/\D/g, ""),
+              }))
+            }
+          />
+          <CodeButton
+            disabled={!phoneOk}
+            left={cd.left}
+            onSend={() => cd.start()}
+          />
+        </div>
+      </Field>
+      <AgreeCheckbox
+        checked={values.agree}
+        onChange={(v) => setValues((s) => ({ ...s, agree: v }))}
+        error={errors.agree}
+      />
+      <SubmitBtn loading={loading}>注册</SubmitBtn>
+    </form>
+  );
+}
+
+function AgreeCheckbox({
+  checked,
+  onChange,
+  error,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  error?: string;
+}) {
+  return (
+    <>
+      <label className="mt-1 flex items-start gap-2 text-[12.5px] text-text-secondary">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+          className="mt-0.5 h-3.5 w-3.5 rounded border-[color:var(--border-default)] accent-foreground"
+        />
+        <span>我已阅读并同意《用户协议》与《隐私政策》</span>
+      </label>
+      {error && (
+        <span className="block text-[11.5px] text-[#D94B4B]">{error}</span>
+      )}
+    </>
+  );
+}
