@@ -26,6 +26,7 @@ import org.dromara.system.domain.bo.SysUserBo;
 import org.dromara.system.domain.vo.SysUserVo;
 import org.dromara.system.mapper.SysUserMapper;
 import org.dromara.system.service.ISysUserService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
@@ -39,6 +40,10 @@ public class SysRegisterService {
 
     private final ISysUserService userService;
     private final SysUserMapper userMapper;
+
+    @Value("${dalanbook.auth.default-user-dept-id:108}")
+    private Long defaultUserDeptId;
+
     /**
      * 注册
      */
@@ -57,6 +62,7 @@ public class SysRegisterService {
         sysUser.setEmail(email);
         sysUser.setPassword(BCrypt.hashpw(password));
         sysUser.setUserType(UserType.SYS_USER.getUserType());
+        sysUser.setDeptId(defaultUserDeptId);
 
         boolean regFlag = userService.registerUser(sysUser, tenantId);
         if (!regFlag) {

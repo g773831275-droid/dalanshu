@@ -1,31 +1,17 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Check, Users, MessageSquare, Share2, Bell, Pin } from "lucide-react";
 import { TopNav } from "@/components/home/TopNav";
 import { MobileTopBar } from "@/components/home/MobileTopBar";
 import { MobileBottomNav } from "@/components/home/MobileBottomNav";
 import { PostCard } from "@/components/home/PostCard";
-import { circles } from "@/data/mockCircles";
-import { posts } from "@/data/mockPosts";
-import { useAllCircles } from "@/lib/circleStore";
+import { authStore, useAuthUser } from "@/lib/authStore";
+import { getCircle, getCirclePosts, setCircleMembership } from "@/lib/dalanbookApi";
 
 export const Route = createFileRoute("/circles/$id")({
-  head: ({ params }) => {
-    const circle = circles.find((c) => c.id === params.id);
-    if (!circle) {
-      return { meta: [{ title: "圈子 · 大蓝书" }, { name: "robots", content: "noindex" }] };
-    }
-    return {
-      meta: [
-        { title: `${circle.name} · 大蓝书` },
-        { name: "description", content: circle.desc },
-        { property: "og:title", content: `${circle.name} · 大蓝书` },
-        { property: "og:description", content: circle.desc },
-        { property: "og:image", content: circle.cover },
-      ],
-    };
-  },
+  head: () => ({ meta: [{ title: "圈子 · 大蓝书" }] }),
   component: CircleDetail,
 });
 
@@ -45,9 +31,19 @@ const pinned = [
 
 function CircleDetail() {
   const { id } = Route.useParams();
-  const all = useAllCircles();
-  const circle = all.find((c) => c.id === id);
-  const [joined, setJoined] = useState(!!circle?.joined);
+  const user = useAuthUser();
+  const {
+    data: circle,
+    isLoading,
+    error,
+  } = useQuery({ queryKey: ["dalanbook", "circle", id], queryFn: () => getCircle(id) });
+  const { data: posts = [] } = useQuery({
+    queryKey: ["dalanbook", "circle", id, "posts"],
+    queryFn: () => getCirclePosts(id),
+  });
+  const [joinedOverride, setJoinedOverride] = useState<boolean | null>(null);
+  const [joining, setJoining] = useState(false);
+  const joined = joinedOverride ?? !!circle?.joined;
   const [tab, setTab] = useState<TabKey>("recommend");
 
   const circlePosts = useMemo(() => {
@@ -57,11 +53,41 @@ function CircleDetail() {
     const base = list.length ? list : posts.slice(0, 12);
     if (tab === "latest") return [...base].reverse();
     if (tab === "featured") return [...base].sort((a, b) => b.useful - a.useful);
-    if (tab === "question") return base.filter((p) => p.tag === "提问").concat(base).slice(0, 12);
+    if (tab === "question")
+      return base
+        .filter((p) => p.tag === "提问")
+        .concat(base)
+        .slice(0, 12);
     return base;
-  }, [circle, tab]);
+  }, [circle, posts, tab]);
 
-  if (!circle) {
+  async function toggleMembership() {
+    if (!user) {
+      authStore.openAuth({ tab: "login", action: "加入圈子" });
+      return;
+    }
+    if (joining) return;
+    const next = !joined;
+    setJoinedOverride(next);
+    setJoining(true);
+    try {
+      const updated = await setCircleMembership(id, next);
+      setJoinedOverride(!!updated.joined);
+    } catch {
+      setJoinedOverride(!next);
+    } finally {
+      setJoining(false);
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-text-secondary">
+        正在加载圈子…
+      </div>
+    );
+  }
+  if (!circle || error) {
     return (
       <div className="flex min-h-screen items-center justify-center text-text-secondary">
         圈子不存在
@@ -79,11 +105,7 @@ function CircleDetail() {
       {/* Cover */}
       <div className="relative">
         <div className="relative h-[180px] w-full overflow-hidden md:h-[260px]">
-          <img
-            src={circle.cover}
-            alt={circle.name}
-            className="h-full w-full object-cover"
-          />
+          <img src={circle.cover} alt={circle.name} className="h-full w-full object-cover" />
           <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-black/20 to-background" />
         </div>
 
@@ -132,7 +154,8 @@ function CircleDetail() {
 
             <div className="flex items-center gap-2 md:shrink-0">
               <button
-                onClick={() => setJoined((v) => !v)}
+                onClick={toggleMembership}
+                disabled={joining}
                 className={
                   "h-10 rounded-[12px] px-4 text-[13.5px] font-medium transition-colors " +
                   (joined

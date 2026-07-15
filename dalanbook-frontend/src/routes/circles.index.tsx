@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Search, Plus } from "lucide-react";
 import { TopNav } from "@/components/home/TopNav";
@@ -6,9 +7,9 @@ import { MobileTopBar } from "@/components/home/MobileTopBar";
 import { MobileBottomNav } from "@/components/home/MobileBottomNav";
 import { CircleCard } from "@/components/circles/CircleCard";
 import { circleCategories } from "@/data/mockCircles";
-import { useAllCircles, useUserCircles } from "@/lib/circleStore";
 import { authStore, useAuthUser } from "@/lib/authStore";
 import { CreateCircleModal } from "@/components/circles/CreateCircleModal";
+import { getCircles, getMyCircles } from "@/lib/dalanbookApi";
 
 export const Route = createFileRoute("/circles/")({
   head: () => ({
@@ -34,8 +35,19 @@ function CirclesPage() {
   const [cat, setCat] = useState("全部");
   const [createOpen, setCreateOpen] = useState(false);
   const user = useAuthUser();
-  const allCircles = useAllCircles();
-  const myCircles = useUserCircles();
+  const {
+    data: allCircles = [],
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: ["dalanbook", "circles"],
+    queryFn: () => getCircles(),
+  });
+  const { data: myCircles = [] } = useQuery({
+    queryKey: ["dalanbook", "circles", "mine"],
+    queryFn: () => getMyCircles(true),
+    enabled: !!user,
+  });
 
   const list = allCircles.filter((c) => {
     if (cat !== "全部" && c.category !== cat) return false;
@@ -68,9 +80,7 @@ function CirclesPage() {
             <h1 className="text-[26px] md:text-[30px] font-semibold tracking-[-0.02em] text-foreground">
               圈子发现
             </h1>
-            <p className="mt-1.5 text-[14px] text-text-secondary">
-              找到和你做同一件事的人。
-            </p>
+            <p className="mt-1.5 text-[14px] text-text-secondary">找到和你做同一件事的人。</p>
           </div>
           <button
             onClick={handleCreate}
@@ -121,9 +131,7 @@ function CirclesPage() {
               <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">
                 我创建的
               </h2>
-              <span className="text-[12px] text-text-tertiary">
-                {myCircles.length} 个圈子
-              </span>
+              <span className="text-[12px] text-text-tertiary">{myCircles.length} 个圈子</span>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {myCircles.map((c) => (
@@ -140,9 +148,7 @@ function CirclesPage() {
               <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">
                 你已加入
               </h2>
-              <span className="text-[12px] text-text-tertiary">
-                {featured.length} 个圈子
-              </span>
+              <span className="text-[12px] text-text-tertiary">{featured.length} 个圈子</span>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {featured.map((c) => (
@@ -158,12 +164,18 @@ function CirclesPage() {
             <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">
               {cat === "全部" ? "推荐圈子" : cat}
             </h2>
-            <span className="text-[12px] text-text-tertiary">
-              {list.length} 个结果
-            </span>
+            <span className="text-[12px] text-text-tertiary">{list.length} 个结果</span>
           </div>
 
-          {list.length === 0 ? (
+          {isLoading ? (
+            <div className="rounded-[16px] border border-[color:var(--border)] bg-white/60 p-10 text-center text-[13px] text-text-tertiary">
+              正在加载圈子…
+            </div>
+          ) : error ? (
+            <div className="rounded-[16px] border border-[color:var(--border)] bg-white/60 p-10 text-center text-[13px] text-text-secondary">
+              圈子加载失败，请稍后重试。
+            </div>
+          ) : list.length === 0 ? (
             <div className="rounded-[16px] border border-[color:var(--border)] bg-white/60 p-10 text-center text-[13px] text-text-tertiary">
               没有找到匹配的圈子。
             </div>

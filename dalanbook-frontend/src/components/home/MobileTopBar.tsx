@@ -3,7 +3,7 @@ import { Logo } from "@/components/brand/Logo";
 
 const channels = ["推荐", "关注", "精华", "最新"];
 
-export function MobileTopBar() {
+export function MobileTopBar({ showChannels = true }: { showChannels?: boolean }) {
   return (
     <header className="sticky top-0 z-40 md:hidden">
       <div className="glass-base mx-3 mt-2 flex h-12 items-center justify-between rounded-[18px] px-3">
@@ -24,21 +24,23 @@ export function MobileTopBar() {
         </div>
       </div>
 
-      <div className="no-scrollbar mt-2 flex items-center gap-1.5 overflow-x-auto px-3 pb-1">
-        {channels.map((c, i) => (
-          <button
-            key={c}
-            className={
-              "shrink-0 rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors " +
-              (i === 0
-                ? "bg-foreground text-white"
-                : "border border-[color:var(--border)] bg-white/60 text-text-secondary")
-            }
-          >
-            {c}
-          </button>
-        ))}
-      </div>
+      {showChannels && (
+        <div className="no-scrollbar mt-2 flex items-center gap-1.5 overflow-x-auto px-3 pb-1">
+          {channels.map((c, i) => (
+            <button
+              key={c}
+              className={
+                "shrink-0 rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors " +
+                (i === 0
+                  ? "bg-foreground text-white"
+                  : "border border-[color:var(--border)] bg-white/60 text-text-secondary")
+              }
+            >
+              {c}
+            </button>
+          ))}
+        </div>
+      )}
     </header>
   );
 }

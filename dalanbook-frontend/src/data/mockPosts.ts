@@ -10,11 +10,11 @@ import meal from "@/assets/cover-meal.jpg";
 import gadgets from "@/assets/cover-gadgets.jpg";
 import code from "@/assets/cover-code.jpg";
 
-
 export type PostTag = "经验" | "提问" | "测评" | "复盘" | "大神分享" | "清单";
 
 export type Post = {
   id: string;
+  circleId?: string;
   cover: string;
   ratio: "1/1" | "4/5" | "3/4" | "4/3" | "16/9";
   tag?: PostTag;

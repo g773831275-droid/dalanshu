@@ -1,110 +1,190 @@
 import type { Post, PostTag } from "@/data/mockPosts";
-import { posts as fallbackPosts } from "@/data/mockPosts";
-import aiDesk from "@/assets/cover-ai-desk.jpg";
-import gym from "@/assets/cover-gym.jpg";
-import deskSetup from "@/assets/cover-desk-setup.jpg";
-import portraitPm from "@/assets/cover-portrait-pm.jpg";
-import charts from "@/assets/cover-charts.jpg";
-import outdoor from "@/assets/cover-outdoor.jpg";
-import edc from "@/assets/cover-edc.jpg";
-import notebook from "@/assets/cover-notebook.jpg";
-import meal from "@/assets/cover-meal.jpg";
-import gadgets from "@/assets/cover-gadgets.jpg";
-import code from "@/assets/cover-code.jpg";
+import type { Circle } from "@/data/mockCircles";
+import { authRequest } from "@/lib/authApi";
 
-const coverAssets: Record<string, string> = {
-  "cover-ai-desk": aiDesk,
-  "cover-gym": gym,
-  "cover-desk-setup": deskSetup,
-  "cover-portrait-pm": portraitPm,
-  "cover-charts": charts,
-  "cover-outdoor": outdoor,
-  "cover-edc": edc,
-  "cover-notebook": notebook,
-  "cover-meal": meal,
-  "cover-gadgets": gadgets,
-  "cover-code": code,
+export type Topic = {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  postCount: number;
+  createdAt: string;
 };
 
-type ApiResponse<T> = { code: number; msg: string; data: T };
+type Author = { id: string; name: string; avatarUrl?: string; avatarColor: string };
+type CircleBrief = { id: string; name: string };
+type ImageDto = { url: string; ratio: Post["ratio"] };
 
 export type ApiPost = {
   id: string;
-  circleId: string;
-  circle: string;
   title: string;
   content: string;
-  coverKey: string;
+  images: ImageDto[];
+  cover: string;
   ratio: Post["ratio"];
   tag?: PostTag;
-  topics: string[];
-  authorId: string;
-  author: string;
-  avatarColor: string;
-  useful: number;
-  location?: string;
-  visibility: "public" | "circle";
-  createTime: string;
+  topics: Topic[];
+  circle: CircleBrief;
+  author: Author;
+  usefulCount: number;
+  likeCount: number;
+  commentCount: number;
+  favoriteCount: number;
+  isUseful: boolean;
+  isLiked: boolean;
+  isFavorited: boolean;
+  createdAt: string;
+};
+
+type FeedItem = {
+  id: string;
+  cover: { url: string; ratio: Post["ratio"] };
+  tag?: PostTag;
+  title: string;
+  circle: CircleBrief;
+  author: Author;
+  useful: { count: number; liked: boolean };
+  createdAt: string;
+};
+
+type FeedResponse = { items: FeedItem[]; nextCursor?: string; hasMore: boolean };
+type CursorPage<T> = { items: T[]; nextCursor?: string; hasMore: boolean };
+
+export type ApiCircle = {
+  id: string;
+  name: string;
+  cover: string;
+  desc: string;
+  category: string;
+  tags: string[];
+  memberCount: number;
+  postCount: number;
+  isJoined: boolean;
+  isOwner: boolean;
+  ownerId: string;
+  createdAt: string;
 };
 
 export type PublishPostInput = {
   title: string;
   content: string;
   circleId: string;
-  coverKey: string;
-  imageRatio: Post["ratio"];
-  postTag: PostTag;
+  images: ImageDto[];
+  ratio: Post["ratio"];
+  tag: PostTag;
   topics: string[];
-  authorId?: string;
-  authorName?: string;
-  location?: string;
   visibility: "public" | "circle";
 };
 
-function toPost(post: ApiPost): Post {
+export type CreateCircleInput = Pick<ApiCircle, "name" | "cover" | "desc" | "category" | "tags">;
+
+function toPost(item: FeedItem): Post {
   return {
-    id: post.id,
-    cover: coverAssets[post.coverKey] ?? aiDesk,
-    ratio: post.ratio,
-    tag: post.tag,
-    circle: post.circle,
-    title: post.title,
-    author: post.author,
-    avatarColor: post.avatarColor,
-    useful: post.useful,
+    id: item.id,
+    cover: item.cover.url,
+    ratio: item.cover.ratio,
+    tag: item.tag,
+    circleId: item.circle.id,
+    circle: item.circle.name,
+    title: item.title,
+    author: item.author.name,
+    avatarColor: item.author.avatarColor,
+    useful: item.useful.count,
   };
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const baseUrl = typeof window === "undefined" ? "http://localhost:8080" : "";
-  const response = await fetch(baseUrl + path, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
-  });
-  const result = (await response.json()) as ApiResponse<T>;
-  if (!response.ok || result.code !== 200) {
-    throw new Error(result.msg || "请求失败");
-  }
-  return result.data;
+export function toCircle(circle: ApiCircle): Circle {
+  return {
+    id: circle.id,
+    name: circle.name,
+    cover: circle.cover,
+    desc: circle.desc,
+    members: String(circle.memberCount),
+    posts: `${circle.postCount} 条讨论`,
+    category: circle.category,
+    joined: circle.isJoined,
+    tags: circle.tags,
+  };
 }
 
-export async function getPost(id: string): Promise<Post> {
-  return toPost(await request<ApiPost>(`/api/dalanbook/posts/${encodeURIComponent(id)}`));
+export async function getFeed(categoryId = "recommend"): Promise<Post[]> {
+  const data = await authRequest<FeedResponse>(
+    `/api/v1/home/feed?categoryId=${encodeURIComponent(categoryId)}&limit=40`,
+  );
+  return data.items.map(toPost);
 }
 
-export async function getFeed(): Promise<Post[]> {
-  if (typeof window === "undefined") return fallbackPosts;
-  try {
-    const data = await request<ApiPost[]>("/api/dalanbook/feed");
-    return data.length ? data.map(toPost) : fallbackPosts;
-  } catch {
-    return fallbackPosts;
-  }
+export async function getPost(id: string): Promise<ApiPost> {
+  return authRequest<ApiPost>(`/api/v1/posts/${encodeURIComponent(id)}`);
 }
 
 export async function publishPost(input: PublishPostInput): Promise<ApiPost> {
-  return request<ApiPost>("/api/dalanbook/posts", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
+  return authRequest<ApiPost>("/api/v1/posts", { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function uploadImage(file: File): Promise<{ url: string }> {
+  const body = new FormData();
+  body.append("file", file);
+  return authRequest<{ url: string }>("/api/v1/uploads", { method: "POST", body });
+}
+
+export async function setPostUseful(id: string, liked: boolean) {
+  return authRequest<{ count: number; liked: boolean }>(
+    `/api/v1/posts/${encodeURIComponent(id)}/useful`,
+    {
+      method: "POST",
+      body: JSON.stringify({ liked }),
+    },
+  );
+}
+
+export async function getCircles(category?: string): Promise<Circle[]> {
+  const query = category ? `?category=${encodeURIComponent(category)}&limit=50` : "?limit=50";
+  const data = await authRequest<CursorPage<ApiCircle>>(`/api/v1/circles${query}`);
+  return data.items.map(toCircle);
+}
+
+export async function getMyCircles(ownedOnly = false): Promise<Circle[]> {
+  const data = await authRequest<ApiCircle[]>(`/api/v1/circles/mine?ownedOnly=${ownedOnly}`);
+  return data.map(toCircle);
+}
+
+export async function getCircle(id: string): Promise<Circle> {
+  return toCircle(await authRequest<ApiCircle>(`/api/v1/circles/${encodeURIComponent(id)}`));
+}
+
+export async function getCirclePosts(id: string): Promise<Post[]> {
+  const data = await authRequest<FeedResponse>(
+    `/api/v1/circles/${encodeURIComponent(id)}/posts?limit=40`,
+  );
+  return data.items.map(toPost);
+}
+
+export async function createCircle(input: CreateCircleInput): Promise<Circle> {
+  return toCircle(
+    await authRequest<ApiCircle>("/api/v1/circles", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  );
+}
+
+export async function setCircleMembership(id: string, joined: boolean): Promise<Circle> {
+  return toCircle(
+    await authRequest<ApiCircle>(`/api/v1/circles/${encodeURIComponent(id)}/membership`, {
+      method: "PUT",
+      body: JSON.stringify({ joined }),
+    }),
+  );
+}
+
+export function getTopics(): Promise<Topic[]> {
+  return authRequest<Topic[]>("/api/v1/topics?limit=50");
+}
+
+export async function getTopic(slug: string): Promise<{ topic: Topic; posts: Post[] }> {
+  const data = await authRequest<{ topic: Topic; posts: CursorPage<FeedItem> }>(
+    `/api/v1/topics/${encodeURIComponent(slug)}?limit=40`,
+  );
+  return { topic: data.topic, posts: data.posts.items.map(toPost) };
 }

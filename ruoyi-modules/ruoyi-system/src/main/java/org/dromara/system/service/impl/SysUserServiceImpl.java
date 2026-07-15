@@ -25,12 +25,16 @@ import org.dromara.common.satoken.utils.LoginHelper;
 import org.dromara.system.domain.SysUser;
 import org.dromara.system.domain.SysUserPost;
 import org.dromara.system.domain.SysUserRole;
+import org.dromara.system.domain.dalanbook.v1.DalanUserDevice;
+import org.dromara.system.domain.dalanbook.v1.DalanUserProfile;
 import org.dromara.system.domain.bo.SysUserBo;
 import org.dromara.system.domain.vo.SysPostVo;
 import org.dromara.system.domain.vo.SysRoleVo;
 import org.dromara.system.domain.vo.SysUserExportVo;
 import org.dromara.system.domain.vo.SysUserVo;
 import org.dromara.system.mapper.*;
+import org.dromara.system.mapper.dalanbook.v1.DalanUserDeviceMapper;
+import org.dromara.system.mapper.dalanbook.v1.DalanUserProfileMapper;
 import org.dromara.system.service.ISysUserService;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
@@ -55,11 +59,41 @@ public class SysUserServiceImpl implements ISysUserService, UserService {
     private final SysPostMapper postMapper;
     private final SysUserRoleMapper userRoleMapper;
     private final SysUserPostMapper userPostMapper;
+    private final DalanUserProfileMapper dalanUserProfileMapper;
+    private final DalanUserDeviceMapper dalanUserDeviceMapper;
 
     @Override
     public TableDataInfo<SysUserVo> selectPageUserList(SysUserBo user, PageQuery pageQuery) {
         Page<SysUserVo> page = baseMapper.selectPageUserList(pageQuery.build(), this.buildQueryWrapper(user));
+        enrichCommunityInsights(page.getRecords());
         return TableDataInfo.build(page);
+    }
+
+    private void enrichCommunityInsights(List<SysUserVo> users) {
+        if (CollUtil.isEmpty(users)) return;
+        List<Long> userIds = users.stream().map(SysUserVo::getUserId).toList();
+        Map<Long, DalanUserProfile> profiles = dalanUserProfileMapper.selectList(
+                new LambdaQueryWrapper<DalanUserProfile>().in(DalanUserProfile::getUserId, userIds))
+            .stream().collect(java.util.stream.Collectors.toMap(DalanUserProfile::getUserId, value -> value));
+        Map<Long, DalanUserDevice> devices = new LinkedHashMap<>();
+        dalanUserDeviceMapper.selectList(new LambdaQueryWrapper<DalanUserDevice>()
+                .in(DalanUserDevice::getUserId, userIds).orderByDesc(DalanUserDevice::getLastSeenAt))
+            .forEach(device -> devices.putIfAbsent(device.getUserId(), device));
+        for (SysUserVo user : users) {
+            DalanUserProfile profile = profiles.get(user.getUserId());
+            if (profile != null) {
+                user.setAgeRange(profile.getAgeRange());
+                user.setLocation(profile.getLocation());
+            }
+            DalanUserDevice device = devices.get(user.getUserId());
+            if (device != null) {
+                user.setDeviceType(device.getDeviceType());
+                user.setDeviceBrand(device.getBrand());
+                user.setDeviceModel(device.getModel());
+                user.setDeviceOs(device.getOs());
+                user.setDeviceBrowser(device.getBrowser());
+            }
+        }
     }
 
     /**

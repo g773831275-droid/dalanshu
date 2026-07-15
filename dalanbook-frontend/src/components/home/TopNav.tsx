@@ -1,7 +1,9 @@
 import { Bell, LogOut, Search } from "lucide-react";
 import { Link, useRouterState } from "@tanstack/react-router";
+import { useEffect } from "react";
 import { Logo } from "@/components/brand/Logo";
 import { authStore, useAuthUser } from "@/lib/authStore";
+import { logout, reportWebDevice } from "@/lib/authApi";
 
 const navItems = [
   { label: "首页", href: "/" as const },
@@ -12,6 +14,9 @@ const navItems = [
 export function TopNav() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const user = useAuthUser();
+  useEffect(() => {
+    if (user) void reportWebDevice().catch(() => undefined);
+  }, [user?.id]);
   return (
     <div className="pointer-events-none sticky top-0 z-40 px-4 pt-3">
       <header className="glass-base pointer-events-auto mx-auto flex h-[60px] max-w-[1240px] items-center gap-4 rounded-[20px] px-4">
@@ -73,7 +78,9 @@ export function TopNav() {
                 <span className="max-w-[80px] truncate">{user.name}</span>
               </Link>
               <button
-                onClick={() => authStore.set(null)}
+                onClick={() => {
+                  void logout().finally(() => authStore.set(null));
+                }}
                 className="flex h-9 w-9 items-center justify-center rounded-[10px] text-text-tertiary transition-colors hover:bg-black/[0.04] hover:text-foreground"
                 aria-label="退出登录"
                 title="退出登录"

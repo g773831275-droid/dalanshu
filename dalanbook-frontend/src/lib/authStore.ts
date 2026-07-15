@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 
 const KEY = "dalanbook.auth.user";
 
-export type MockUser = { id: string; name: string };
+export type AuthUser = { id: string; name: string; avatar?: string };
 export type AuthModalState = {
   open: boolean;
   tab: "login" | "register";
@@ -13,17 +13,17 @@ export type AuthModalState = {
 const userListeners = new Set<() => void>();
 const modalListeners = new Set<() => void>();
 let cachedUserRaw: string | null | undefined;
-let cachedUser: MockUser | null = null;
+let cachedUser: AuthUser | null = null;
 
 let modalState: AuthModalState = { open: false, tab: "login" };
 
-function read(): MockUser | null {
+function read(): AuthUser | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(KEY);
     if (raw === cachedUserRaw) return cachedUser;
     cachedUserRaw = raw;
-    cachedUser = raw ? (JSON.parse(raw) as MockUser) : null;
+    cachedUser = raw ? (JSON.parse(raw) as AuthUser) : null;
     return cachedUser;
   } catch {
     cachedUserRaw = null;
@@ -41,7 +41,7 @@ function emitModal() {
 
 export const authStore = {
   get: read,
-  set(user: MockUser | null) {
+  set(user: AuthUser | null) {
     if (typeof window === "undefined") return;
     if (user) {
       const raw = JSON.stringify(user);
@@ -81,7 +81,7 @@ export const authStore = {
   },
 };
 
-export function useAuthUser(): MockUser | null {
+export function useAuthUser(): AuthUser | null {
   return useSyncExternalStore(
     authStore.subscribe,
     () => authStore.get(),

@@ -1,7 +1,6 @@
 import { ThumbsUp, Users } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import type { Post } from "@/data/mockPosts";
-import { circles } from "@/data/mockCircles";
 
 const ratioClass: Record<Post["ratio"], string> = {
   "1/1": "aspect-square",
@@ -13,16 +12,11 @@ const ratioClass: Record<Post["ratio"], string> = {
 
 export function PostCard({ post }: { post: Post }) {
   const initial = post.author.slice(0, 1);
-  const circleMeta = circles.find((c) => c.name === post.circle);
+  const circleId = post.circleId;
 
   return (
     <article className="group relative mb-3 md:mb-4 block break-inside-avoid overflow-hidden rounded-[16px] border border-[color:var(--border)] bg-white shadow-[var(--shadow-subtle)] transition-all duration-[220ms] ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-floating)]">
-      <Link
-        to="/posts/$id"
-        params={{ id: post.id }}
-        className="block"
-        aria-label={post.title}
-      >
+      <Link to="/posts/$id" params={{ id: post.id }} className="block" aria-label={post.title}>
         <div className={`relative overflow-hidden ${ratioClass[post.ratio]}`}>
           <img
             src={post.cover}
@@ -40,10 +34,10 @@ export function PostCard({ post }: { post: Post }) {
 
       <div className="p-2.5 md:p-3">
         <div className="mb-1.5">
-          {circleMeta ? (
+          {circleId ? (
             <Link
               to="/circles/$id"
-              params={{ id: circleMeta.id }}
+              params={{ id: circleId }}
               className="inline-flex items-center gap-1 rounded-md bg-[color:var(--action-muted)] px-1.5 py-0.5 text-[11px] font-medium text-text-secondary transition-colors hover:bg-foreground hover:text-white"
             >
               <Users className="h-3 w-3" strokeWidth={1.75} />
@@ -69,9 +63,7 @@ export function PostCard({ post }: { post: Post }) {
               >
                 {initial}
               </span>
-              <span className="truncate text-[12px] text-text-secondary">
-                {post.author}
-              </span>
+              <span className="truncate text-[12px] text-text-secondary">{post.author}</span>
             </div>
             <div className="flex items-center gap-1 text-[12px] text-text-tertiary">
               <ThumbsUp className="h-3.5 w-3.5" strokeWidth={1.75} />

@@ -6,6 +6,7 @@ import cn.hutool.core.convert.Convert;
 import cn.hutool.core.lang.tree.Tree;
 import cn.hutool.core.util.ObjectUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -87,6 +88,59 @@ public class SysDeptServiceImpl implements ISysDeptService, DeptService {
         LambdaQueryWrapper<SysDept> lqw = buildQueryWrapper(bo);
         List<SysDeptVo> depts = baseMapper.selectDeptList(lqw);
         return buildDeptTreeSelect(depts);
+    }
+
+    @Override
+    public List<Tree<Long>> selectDeptTreeListWithUserCount(SysDeptBo bo) {
+        LambdaQueryWrapper<SysDept> lqw = buildQueryWrapper(bo);
+        List<SysDeptVo> depts = baseMapper.selectDeptList(lqw);
+        if (CollUtil.isEmpty(depts)) {
+            return CollUtil.newArrayList();
+        }
+
+        Map<Long, Long> directCounts = new HashMap<>();
+        for (Map<String, Object> row : userMapper.selectMaps(new QueryWrapper<SysUser>()
+            .select("dept_id", "COUNT(*) AS user_count")
+            .eq("del_flag", SystemConstants.NORMAL)
+            .isNotNull("dept_id")
+            .groupBy("dept_id"))) {
+            Long deptId = Convert.toLong(row.get("dept_id"));
+            Long userCount = Convert.toLong(row.get("user_count"), 0L);
+            if (deptId != null) {
+                directCounts.merge(deptId, userCount, Long::sum);
+            }
+        }
+
+        Map<Long, Long> totals = new HashMap<>(directCounts);
+        Set<Long> visibleDeptIds = new HashSet<>();
+        depts.forEach(dept -> visibleDeptIds.add(dept.getDeptId()));
+        for (SysDeptVo dept : depts) {
+            long directCount = directCounts.getOrDefault(dept.getDeptId(), 0L);
+            if (directCount == 0 || StringUtils.isBlank(dept.getAncestors())) {
+                continue;
+            }
+            for (String ancestor : StringUtils.split(dept.getAncestors(), ',')) {
+                Long ancestorId = Convert.toLong(ancestor);
+                if (ancestorId != null && visibleDeptIds.contains(ancestorId)) {
+                    totals.merge(ancestorId, directCount, Long::sum);
+                }
+            }
+        }
+
+        return TreeBuildUtils.buildMultiRoot(
+            depts,
+            SysDeptVo::getDeptId,
+            SysDeptVo::getParentId,
+            (node, treeNode) -> {
+                treeNode
+                    .setId(node.getDeptId())
+                    .setParentId(node.getParentId())
+                    .setName(node.getDeptName())
+                    .setWeight(node.getOrderNum())
+                    .putExtra("disabled", SystemConstants.DISABLE.equals(node.getStatus()));
+                treeNode.putExtra("userCount", totals.getOrDefault(node.getDeptId(), 0L));
+            }
+        );
     }
 
     private LambdaQueryWrapper<SysDept> buildQueryWrapper(SysDeptBo bo) {

@@ -13,7 +13,7 @@ export function Logo({
     <a href="/" className={`flex items-center gap-2 ${className}`}>
       <img
         src={logoAsset}
-        alt="大蓝书"
+        alt="大蓝树"
         width={size}
         height={size}
         style={{ width: size, height: size }}
@@ -21,7 +21,7 @@ export function Logo({
       />
       {showWordmark && (
         <span className="text-[15px] font-semibold tracking-tight text-foreground">
-          大蓝书
+          大蓝树
         </span>
       )}
     </a>

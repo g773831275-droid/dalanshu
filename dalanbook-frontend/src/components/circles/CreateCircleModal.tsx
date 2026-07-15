@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { X, Loader2, Hash } from "lucide-react";
 import { circleCategories } from "@/data/mockCircles";
@@ -13,7 +14,7 @@ import charts from "@/assets/cover-charts.jpg";
 import notebook from "@/assets/cover-notebook.jpg";
 import planning from "@/assets/cover-planning.jpg";
 import code from "@/assets/cover-code.jpg";
-import { circleStore } from "@/lib/circleStore";
+import { createCircle } from "@/lib/dalanbookApi";
 
 const covers = [aiDesk, gym, deskSetup, outdoor, edc, gadgets, charts, notebook, planning, code];
 
@@ -32,14 +33,9 @@ const schema = z.object({
 const inputCls =
   "h-11 w-full rounded-[10px] border border-[color:var(--border-default)] bg-white/70 px-3 text-[14px] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] placeholder:text-text-tertiary focus:border-black/30 focus:outline-none focus:ring-[3px] focus:ring-black/5";
 
-export function CreateCircleModal({
-  open,
-  onClose,
-}: {
-  open: boolean;
-  onClose: () => void;
-}) {
+export function CreateCircleModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [category, setCategory] = useState(categoryOptions[0]);
@@ -71,7 +67,7 @@ export function CreateCircleModal({
     setTagInput("");
   }
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     const r = schema.safeParse({ name, desc, category, tags, cover });
     if (!r.success) {
@@ -82,12 +78,16 @@ export function CreateCircleModal({
     }
     setErrors({});
     setLoading(true);
-    setTimeout(() => {
-      const c = circleStore.create({ name, desc, category, tags, cover });
+    try {
+      const c = await createCircle(r.data);
+      await queryClient.invalidateQueries({ queryKey: ["dalanbook", "circles"] });
       reset();
       onClose();
       navigate({ to: "/circles/$id", params: { id: c.id } });
-    }, 500);
+    } catch (error) {
+      setErrors({ form: error instanceof Error ? error.message : "创建失败，请稍后重试" });
+      setLoading(false);
+    }
   }
 
   return (
@@ -109,12 +109,8 @@ export function CreateCircleModal({
           <X className="h-4 w-4" strokeWidth={1.75} />
         </button>
 
-        <h2 className="text-[20px] font-semibold tracking-[-0.02em] text-foreground">
-          创建圈子
-        </h2>
-        <p className="mt-1 text-[13px] text-text-secondary">
-          围绕一件你长期做的事，聚集同路人。
-        </p>
+        <h2 className="text-[20px] font-semibold tracking-[-0.02em] text-foreground">创建圈子</h2>
+        <p className="mt-1 text-[13px] text-text-secondary">围绕一件你长期做的事，聚集同路人。</p>
 
         <form onSubmit={submit} className="mt-5 space-y-3.5">
           <div>
@@ -150,10 +146,7 @@ export function CreateCircleModal({
 
           <Field label="一句话简介" error={errors.desc} hint={`${desc.length}/80`}>
             <textarea
-              className={
-                inputCls +
-                " h-[76px] resize-none py-2 leading-relaxed"
-              }
+              className={inputCls + " h-[76px] resize-none py-2 leading-relaxed"}
               placeholder="这个圈子讨论什么？欢迎谁加入？"
               value={desc}
               maxLength={80}
@@ -227,6 +220,7 @@ export function CreateCircleModal({
             {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />}
             创建圈子
           </button>
+          {errors.form && <p className="text-center text-[12px] text-[#D94B4B]">{errors.form}</p>}
         </form>
       </div>
     </div>
@@ -251,9 +245,7 @@ function Field({
         {hint && <span className="text-[11px] text-text-tertiary">{hint}</span>}
       </div>
       <div className="mt-1.5">{children}</div>
-      {error && (
-        <span className="mt-1 block text-[11.5px] text-[#D94B4B]">{error}</span>
-      )}
+      {error && <span className="mt-1 block text-[11.5px] text-[#D94B4B]">{error}</span>}
     </label>
   );
 }

@@ -119,6 +119,27 @@ public class SysUserVo implements Serializable {
     @Translation(type = TransConstant.DEPT_ID_TO_NAME, mapper = "deptId")
     private String deptName;
 
+    /** 社区用户年龄段 */
+    private String ageRange;
+
+    /** 社区用户常住地域 */
+    private String location;
+
+    /** 最近活跃设备类型 */
+    private String deviceType;
+
+    /** 最近活跃设备品牌 */
+    private String deviceBrand;
+
+    /** 最近活跃设备型号 */
+    private String deviceModel;
+
+    /** 最近活跃设备系统 */
+    private String deviceOs;
+
+    /** 最近活跃浏览器 */
+    private String deviceBrowser;
+
     /**
      * 角色对象
      */

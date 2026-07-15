@@ -1,6 +1,6 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import { ArrowLeft, MapPin, CalendarDays, Share2, MessageCircle, Sparkles, Users } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, MapPin, CalendarDays, Share2, MessageCircle, Sparkles, Users, Pencil } from "lucide-react";
 import { TopNav } from "@/components/home/TopNav";
 import { MobileTopBar } from "@/components/home/MobileTopBar";
 import { MobileBottomNav } from "@/components/home/MobileBottomNav";
@@ -9,6 +9,10 @@ import { findUser, users } from "@/data/mockUsers";
 import { circles } from "@/data/mockCircles";
 import { posts } from "@/data/mockPosts";
 import cover from "@/assets/cover-portrait-pm.jpg";
+import { ProfileEditorDialog } from "@/components/profile/ProfileEditorDialog";
+import { ageRangeLabel } from "@/data/regions";
+import { getMyProfile, reportWebDevice, type MyProfile } from "@/lib/authApi";
+import { authStore } from "@/lib/authStore";
 
 export const Route = createFileRoute("/u/$id")({
   loader: ({ params }) => {
@@ -46,6 +50,21 @@ function UserProfile() {
   const { user } = Route.useLoaderData();
   const [tab, setTab] = useState<TabKey>("posts");
   const [following, setFollowing] = useState(false);
+  const [myProfile, setMyProfile] = useState<MyProfile | null>(null);
+  const [editing, setEditing] = useState(false);
+
+  useEffect(() => {
+    if (user.id !== "me") return;
+    void reportWebDevice()
+      .catch(() => undefined)
+      .then(() => getMyProfile())
+      .then(setMyProfile)
+      .catch(() => undefined);
+  }, [user.id]);
+
+  const displayName = myProfile?.nickname ?? user.name;
+  const displayBio = myProfile ? (myProfile.bio || "还没有填写个人简介。") : user.bio;
+  const displayLocation = myProfile ? (myProfile.location || "暂未填写地域") : user.location;
 
   const worksList = useMemo(() => posts.filter((p) => p.author === user.name), [user]);
   const savedList = useMemo(() => posts.slice(0, 6), []);
@@ -58,7 +77,7 @@ function UserProfile() {
       <div className="hidden md:block">
         <TopNav />
       </div>
-      <MobileTopBar />
+      <MobileTopBar showChannels={false} />
 
       {/* Cover */}
       <div className="relative">
@@ -85,20 +104,23 @@ function UserProfile() {
                 style={{ backgroundColor: user.avatarColor }}
                 aria-hidden
               >
-                {user.name.slice(0, 1)}
+                {displayName.slice(0, 1)}
               </span>
               <div className="min-w-0">
                 <h1 className="text-[22px] font-semibold tracking-[-0.02em] text-foreground md:text-[26px]">
-                  {user.name}
+                  {displayName}
                 </h1>
                 <p className="mt-1 max-w-lg text-[13.5px] leading-relaxed text-text-secondary">
-                  {user.bio}
+                  {displayBio}
                 </p>
                 <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-text-tertiary">
                   <span className="inline-flex items-center gap-1">
                     <MapPin className="h-3.5 w-3.5" strokeWidth={1.75} />
-                    {user.location}
+                    {displayLocation}
                   </span>
+                  {myProfile && myProfile.ageRange !== "unknown" && (
+                    <span>{ageRangeLabel(myProfile.ageRange)}</span>
+                  )}
                   <span className="inline-flex items-center gap-1">
                     <CalendarDays className="h-3.5 w-3.5" strokeWidth={1.75} />
                     加入于 {user.joinedAt}
@@ -131,12 +153,13 @@ function UserProfile() {
                 </>
               )}
               {user.id === "me" && (
-                <Link
-                  to="/publish"
-                  className="h-10 rounded-[12px] bg-foreground px-4 text-[13.5px] font-medium leading-10 text-white hover:bg-[color:var(--action-primary-hover)]"
+                <button
+                  onClick={() => setEditing(true)}
+                  disabled={!myProfile}
+                  className="flex h-10 items-center gap-1.5 rounded-[12px] bg-foreground px-4 text-[13.5px] font-medium text-white hover:bg-[color:var(--action-primary-hover)] disabled:opacity-60"
                 >
-                  发布笔记
-                </Link>
+                  <Pencil className="h-3.5 w-3.5" />编辑资料
+                </button>
               )}
               <button
                 className="flex h-10 w-10 items-center justify-center rounded-[12px] border border-[color:var(--border-default)] bg-white/60 text-text-secondary transition-colors hover:text-foreground"
@@ -276,6 +299,18 @@ function UserProfile() {
       </main>
 
       <MobileBottomNav />
+      {myProfile && (
+        <ProfileEditorDialog
+          open={editing}
+          profile={myProfile}
+          onClose={() => setEditing(false)}
+          onSaved={(saved) => {
+            setMyProfile(saved);
+            const current = authStore.get();
+            if (current) authStore.set({ ...current, name: saved.nickname });
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -41,6 +41,11 @@ public interface ISysDeptService {
     List<Tree<Long>> selectDeptTreeList(SysDeptBo dept);
 
     /**
+     * 查询部门树，并统计每个部门及其全部下级部门的用户总数。
+     */
+    List<Tree<Long>> selectDeptTreeListWithUserCount(SysDeptBo dept);
+
+    /**
      * 构建前端所需要下拉树结构
      *
      * @param depts 部门列表

@@ -31,6 +31,7 @@ import org.dromara.web.domain.vo.CaptchaVo;
 import org.springframework.expression.Expression;
 import org.springframework.expression.ExpressionParser;
 import org.springframework.expression.spel.standard.SpelExpressionParser;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -38,6 +39,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.awt.*;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * 验证码操作处理
@@ -54,13 +56,16 @@ public class CaptchaController {
     private final CaptchaProperties captchaProperties;
     private final MailProperties mailProperties;
 
+    @Value("${dalanbook.auth.expose-dev-email-code:false}")
+    private boolean exposeDevEmailCode;
+
     /**
      * 短信验证码
      *
      * @param phonenumber 用户手机号
      */
     @RateLimiter(key = "#phonenumber", time = 60, count = 1)
-    @GetMapping("/resource/sms/code")
+    @GetMapping({"/resource/sms/code", "/api/v1/auth/sms/code"})
     public R<Void> smsCode(@NotBlank(message = "{user.phonenumber.not.blank}") String phonenumber) {
         String key = GlobalConstants.CAPTCHA_CODE_KEY + phonenumber;
         String code = RandomUtil.randomNumbers(4);
@@ -83,11 +88,11 @@ public class CaptchaController {
      *
      * @param email 邮箱
      */
-    @GetMapping("/resource/email/code")
-    public R<Void> emailCode(@NotBlank(message = "{user.email.not.blank}") String email,
-                             @NotBlank(message = "验证码用途不能为空") String purpose,
-                             @NotBlank(message = "图形验证码标识不能为空") String uuid,
-                             @NotBlank(message = "图形验证码不能为空") String code) {
+    @GetMapping({"/resource/email/code", "/api/v1/auth/email/code"})
+    public R<Map<String, String>> emailCode(@NotBlank(message = "{user.email.not.blank}") String email,
+                                            @NotBlank(message = "验证码用途不能为空") String purpose,
+                                            @NotBlank(message = "图形验证码标识不能为空") String uuid,
+                                            @NotBlank(message = "图形验证码不能为空") String code) {
         if (!mailProperties.getEnabled()) {
             return R.fail("当前系统没有开启邮箱功能！");
         }
@@ -95,8 +100,8 @@ public class CaptchaController {
             return R.fail("验证码用途不正确");
         }
         validateCaptcha(uuid, code);
-        SpringUtils.getAopProxy(this).emailCodeImpl(email.trim().toLowerCase(), purpose);
-        return R.ok();
+        String devCode = SpringUtils.getAopProxy(this).emailCodeImpl(email.trim().toLowerCase(), purpose);
+        return R.ok(devCode == null ? Map.of() : Map.of("devCode", devCode));
     }
 
     /**
@@ -104,10 +109,14 @@ public class CaptchaController {
      * 独立方法避免验证码关闭之后仍然走限流
      */
     @RateLimiter(key = "#email", time = 60, count = 1)
-    public void emailCodeImpl(String email, String purpose) {
+    public String emailCodeImpl(String email, String purpose) {
         String key = GlobalConstants.CAPTCHA_CODE_KEY + "email:" + purpose + ":" + email;
         String code = RandomUtil.randomNumbers(6);
         RedisUtils.setCacheObject(key, code, Duration.ofMinutes(Constants.CAPTCHA_EXPIRATION));
+        if (exposeDevEmailCode && StringUtils.isBlank(mailProperties.getPass())) {
+            log.warn("开发环境未配置 SMTP 授权码，邮箱验证码仅回显给本地前端");
+            return code;
+        }
         try {
             String scene = StringUtils.equals(purpose, "register") ? "注册" : "找回密码";
             MailUtils.sendText(email, scene + "验证码", "您本次" + scene + "验证码为：" + code + "，有效期为" + Constants.CAPTCHA_EXPIRATION + "分钟，请尽快填写。");
@@ -115,6 +124,7 @@ public class CaptchaController {
             log.error("验证码短信发送异常 => {}", e.getMessage());
             throw new ServiceException(e.getMessage());
         }
+        return null;
     }
 
     private void validateCaptcha(String uuid, String code) {
@@ -132,7 +142,7 @@ public class CaptchaController {
     /**
      * 生成验证码
      */
-    @GetMapping("/auth/code")
+    @GetMapping({"/auth/code", "/api/v1/auth/code"})
     public R<CaptchaVo> getCode() {
         boolean captchaEnabled = captchaProperties.getEnable();
         if (!captchaEnabled) {

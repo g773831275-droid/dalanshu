@@ -2,15 +2,32 @@ import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Users, MessageSquare, Check } from "lucide-react";
 import type { Circle } from "@/data/mockCircles";
+import { authStore, useAuthUser } from "@/lib/authStore";
+import { setCircleMembership } from "@/lib/dalanbookApi";
 
-export function CircleCard({
-  circle,
-  compact = false,
-}: {
-  circle: Circle;
-  compact?: boolean;
-}) {
+export function CircleCard({ circle, compact = false }: { circle: Circle; compact?: boolean }) {
   const [joined, setJoined] = useState(!!circle.joined);
+  const [saving, setSaving] = useState(false);
+  const user = useAuthUser();
+
+  async function toggleJoined() {
+    if (!user) {
+      authStore.openAuth({ tab: "login", action: "加入圈子" });
+      return;
+    }
+    if (saving) return;
+    const next = !joined;
+    setJoined(next);
+    setSaving(true);
+    try {
+      const updated = await setCircleMembership(circle.id, next);
+      setJoined(!!updated.joined);
+    } catch {
+      setJoined(!next);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <article className="group flex flex-col overflow-hidden rounded-[16px] border border-[color:var(--border)] bg-white shadow-[var(--shadow-subtle)] transition-all duration-[220ms] ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-floating)]">
@@ -18,7 +35,9 @@ export function CircleCard({
       <Link
         to="/circles/$id"
         params={{ id: circle.id }}
-        className={"relative block overflow-hidden " + (compact ? "aspect-[16/7]" : "aspect-[16/9]")}
+        className={
+          "relative block overflow-hidden " + (compact ? "aspect-[16/7]" : "aspect-[16/9]")
+        }
         aria-label={circle.name}
       >
         <img
@@ -31,11 +50,7 @@ export function CircleCard({
       </Link>
 
       <div className="flex flex-1 flex-col p-4">
-        <Link
-          to="/circles/$id"
-          params={{ id: circle.id }}
-          className="mb-1 flex items-center gap-2"
-        >
+        <Link to="/circles/$id" params={{ id: circle.id }} className="mb-1 flex items-center gap-2">
           <h3 className="truncate text-[15px] font-semibold tracking-[-0.01em] text-foreground hover:underline">
             {circle.name}
           </h3>
@@ -71,7 +86,8 @@ export function CircleCard({
           </div>
 
           <button
-            onClick={() => setJoined((v) => !v)}
+            onClick={toggleJoined}
+            disabled={saving}
             className={
               "rounded-[10px] px-3 py-1.5 text-[12.5px] font-medium transition-colors " +
               (joined

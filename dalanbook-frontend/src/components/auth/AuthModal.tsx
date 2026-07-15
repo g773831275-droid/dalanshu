@@ -2,7 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
 import { Eye, EyeOff, Loader2, X, Mail, Phone } from "lucide-react";
-import { authStore, useAuthModal } from "@/lib/authStore";
+import { authStore, useAuthModal, type AuthUser } from "@/lib/authStore";
+import {
+  getCaptcha,
+  loginWithPassword,
+  registerWithEmail,
+  sendEmailCode,
+  type Captcha,
+} from "@/lib/authApi";
 
 type Tab = "login" | "register";
 type Method = "email" | "phone";
@@ -20,9 +27,9 @@ const phoneLoginSchema = z.object({
 });
 const emailRegisterSchema = z
   .object({
-    nickname: z.string().trim().min(2, "昵称至少 2 位").max(20),
     email: z.string().trim().email("请输入正确的邮箱"),
-    password: z.string().min(6, "密码至少 6 位").max(64),
+    emailCode: z.string().regex(/^\d{6}$/, "邮箱验证码为 6 位数字"),
+    password: z.string().min(8, "密码至少 8 位").max(30),
     confirm: z.string(),
     agree: z.literal(true, { message: "请阅读并同意用户协议" }),
   })
@@ -144,7 +151,9 @@ export function AuthModal() {
           ).map(({ k, label, Icon }) => (
             <button
               key={k}
-              onClick={() => setMethod(k)}
+              onClick={() => k === "email" && setMethod(k)}
+              disabled={k === "phone"}
+              title={k === "phone" ? "手机号登录稍后开放" : undefined}
               className={
                 "inline-flex items-center gap-1.5 rounded-[8px] px-2.5 py-1 transition-colors " +
                 (method === k
@@ -200,12 +209,49 @@ export function AuthModal() {
 
 function useAfterAuth() {
   const navigate = useNavigate();
-  return (name: string) => {
+  return (user: AuthUser) => {
     const s = authStore.getModal();
-    authStore.set({ id: "me", name });
+    authStore.set(user);
     authStore.closeAuth();
-    if (s.redirect) navigate({ to: s.redirect });
+    navigate({ to: s.redirect ?? "/" });
   };
+}
+
+function CaptchaField({
+  captcha,
+  value,
+  onChange,
+  onRefresh,
+  error,
+}: {
+  captcha: Captcha | null;
+  value: string;
+  onChange: (value: string) => void;
+  onRefresh: () => void;
+  error?: string;
+}) {
+  if (!captcha?.captchaEnabled) return null;
+  return (
+    <Field label="图形验证码" error={error}>
+      <div className="flex gap-2">
+        <input
+          className={inputCls + " flex-1"}
+          placeholder="请输入计算结果"
+          value={value}
+          onChange={(event) => onChange(event.target.value.trim())}
+          autoComplete="off"
+        />
+        <button
+          type="button"
+          onClick={onRefresh}
+          className="h-11 w-[112px] overflow-hidden rounded-[10px] border border-[color:var(--border-default)] bg-white"
+          title="看不清，换一张"
+        >
+          {captcha.img ? <img src={captcha.img} alt="图形验证码" className="h-full w-full object-cover" /> : "刷新"}
+        </button>
+      </div>
+    </Field>
+  );
 }
 
 function SubmitBtn({
@@ -233,11 +279,22 @@ function EmailLoginForm() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [captcha, setCaptcha] = useState<Captcha | null>(null);
+  const [captchaCode, setCaptchaCode] = useState("");
+
+  const refreshCaptcha = () => {
+    setCaptchaCode("");
+    void getCaptcha().then(setCaptcha).catch((error) =>
+      setErrors((current) => ({ ...current, form: error instanceof Error ? error.message : "验证码加载失败" })),
+    );
+  };
+
+  useEffect(refreshCaptcha, []);
 
   return (
     <form
       className="space-y-3"
-      onSubmit={(e) => {
+      onSubmit={async (e) => {
         e.preventDefault();
         const r = emailLoginSchema.safeParse(values);
         if (!r.success) {
@@ -246,9 +303,24 @@ function EmailLoginForm() {
           setErrors(errs);
           return;
         }
+        if (captcha?.captchaEnabled && !captchaCode) {
+          setErrors({ captcha: "请输入图形验证码" });
+          return;
+        }
         setErrors({});
         setLoading(true);
-        setTimeout(() => after(values.email.split("@")[0] || "我"), 500);
+        try {
+          const user = await loginWithPassword(values.email, values.password, {
+            uuid: captcha?.uuid,
+            code: captchaCode,
+          });
+          after(user);
+        } catch (error) {
+          setErrors({ form: error instanceof Error ? error.message : "登录失败，请稍后重试" });
+          refreshCaptcha();
+        } finally {
+          setLoading(false);
+        }
       }}
     >
       <Field label="邮箱" error={errors.email}>
@@ -288,6 +360,14 @@ function EmailLoginForm() {
           </button>
         </div>
       </Field>
+      <CaptchaField
+        captcha={captcha}
+        value={captchaCode}
+        onChange={setCaptchaCode}
+        onRefresh={refreshCaptcha}
+        error={errors.captcha}
+      />
+      {errors.form && <p className="text-[12px] text-[#D94B4B]">{errors.form}</p>}
       <SubmitBtn loading={loading}>登录</SubmitBtn>
     </form>
   );
@@ -336,7 +416,7 @@ function PhoneLoginForm() {
         }
         setErrors({});
         setLoading(true);
-        setTimeout(() => after(values.phone.slice(-4) + " 用户"), 500);
+        setTimeout(() => after({ id: "me", name: values.phone.slice(-4) + " 用户" }), 500);
       }}
     >
       <Field label="手机号" error={errors.phone}>
@@ -385,8 +465,8 @@ function PhoneLoginForm() {
 function EmailRegisterForm() {
   const after = useAfterAuth();
   const [values, setValues] = useState({
-    nickname: "",
     email: "",
+    emailCode: "",
     password: "",
     confirm: "",
     agree: false,
@@ -394,11 +474,55 @@ function EmailRegisterForm() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [captcha, setCaptcha] = useState<Captcha | null>(null);
+  const [captchaCode, setCaptchaCode] = useState("");
+  const cd = useCountdown();
+
+  const refreshCaptcha = () => {
+    setCaptchaCode("");
+    void getCaptcha().then(setCaptcha).catch((error) =>
+      setErrors((current) => ({ ...current, form: error instanceof Error ? error.message : "验证码加载失败" })),
+    );
+  };
+
+  useEffect(refreshCaptcha, []);
+
+  const requestEmailCode = async () => {
+    const email = z.string().trim().email().safeParse(values.email);
+    if (!email.success) {
+      setErrors({ email: "请输入正确的邮箱" });
+      return;
+    }
+    if (captcha?.captchaEnabled && !captchaCode) {
+      setErrors({ captcha: "请先输入图形验证码" });
+      return;
+    }
+    setSending(true);
+    setErrors({});
+    try {
+      const devCode = await sendEmailCode({
+        email: values.email.trim(),
+        purpose: "register",
+        uuid: captcha?.uuid,
+        code: captchaCode,
+      });
+      if (devCode) {
+        setValues((current) => ({ ...current, emailCode: devCode }));
+      }
+      cd.start();
+    } catch (error) {
+      setErrors({ form: error instanceof Error ? error.message : "验证码发送失败" });
+    } finally {
+      setSending(false);
+      refreshCaptcha();
+    }
+  };
 
   return (
     <form
       className="space-y-3"
-      onSubmit={(e) => {
+      onSubmit={async (e) => {
         e.preventDefault();
         const r = emailRegisterSchema.safeParse(values);
         if (!r.success) {
@@ -409,20 +533,20 @@ function EmailRegisterForm() {
         }
         setErrors({});
         setLoading(true);
-        setTimeout(() => after(values.nickname), 600);
+        try {
+          const user = await registerWithEmail({
+            email: values.email,
+            emailCode: values.emailCode,
+            password: values.password,
+          });
+          after(user);
+        } catch (error) {
+          setErrors({ form: error instanceof Error ? error.message : "注册失败，请稍后重试" });
+        } finally {
+          setLoading(false);
+        }
       }}
     >
-      <Field label="昵称" error={errors.nickname}>
-        <input
-          className={inputCls}
-          placeholder="给自己取个名字"
-          value={values.nickname}
-          maxLength={20}
-          onChange={(e) =>
-            setValues((v) => ({ ...v, nickname: e.target.value }))
-          }
-        />
-      </Field>
       <Field label="邮箱" error={errors.email}>
         <input
           className={inputCls}
@@ -434,12 +558,39 @@ function EmailRegisterForm() {
           autoComplete="email"
         />
       </Field>
+      <CaptchaField
+        captcha={captcha}
+        value={captchaCode}
+        onChange={setCaptchaCode}
+        onRefresh={refreshCaptcha}
+        error={errors.captcha}
+      />
+      <Field label="邮箱验证码" error={errors.emailCode}>
+        <div className="relative">
+          <input
+            className={inputCls + " pr-28"}
+            placeholder="6 位数字"
+            inputMode="numeric"
+            maxLength={6}
+            value={values.emailCode}
+            onChange={(event) =>
+              setValues((current) => ({ ...current, emailCode: event.target.value.replace(/\D/g, "") }))
+            }
+            autoComplete="one-time-code"
+          />
+          <CodeButton
+            disabled={sending || !values.email.includes("@")}
+            left={cd.left}
+            onSend={() => void requestEmailCode()}
+          />
+        </div>
+      </Field>
       <Field label="密码" error={errors.password}>
         <div className="relative">
           <input
             className={inputCls + " pr-10"}
             type={showPwd ? "text" : "password"}
-            placeholder="至少 6 位"
+            placeholder="8–30 位"
             value={values.password}
             onChange={(e) =>
               setValues((v) => ({ ...v, password: e.target.value }))
@@ -477,6 +628,7 @@ function EmailRegisterForm() {
         onChange={(v) => setValues((s) => ({ ...s, agree: v }))}
         error={errors.agree}
       />
+      {errors.form && <p className="text-[12px] text-[#D94B4B]">{errors.form}</p>}
       <SubmitBtn loading={loading}>注册</SubmitBtn>
     </form>
   );
@@ -509,7 +661,7 @@ function PhoneRegisterForm() {
         }
         setErrors({});
         setLoading(true);
-        setTimeout(() => after(values.nickname), 600);
+        setTimeout(() => after({ id: "me", name: values.nickname }), 600);
       }}
     >
       <Field label="昵称" error={errors.nickname}>

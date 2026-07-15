@@ -1,46 +1,45 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
-import {
-  Plus,
-  X,
-  Hash,
-  Users,
-  MapPin,
-  Globe2,
-  Lock,
-  ChevronRight,
-  Check,
-} from "lucide-react";
+import { useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Plus, X, Hash, Users, MapPin, Globe2, Lock, ChevronRight, Check } from "lucide-react";
 import { TopNav } from "@/components/home/TopNav";
 import { MobileTopBar } from "@/components/home/MobileTopBar";
 import { LoginGateModal, useLoginGate } from "@/components/auth/LoginGate";
 import { useAuthUser } from "@/lib/authStore";
-import { circles } from "@/data/mockCircles";
-import { publishPost } from "@/lib/dalanbookApi";
-import cover1 from "@/assets/cover-ai-desk.jpg";
-import cover2 from "@/assets/cover-notebook.jpg";
+import { getCircles, getTopics, publishPost, uploadImage } from "@/lib/dalanbookApi";
 
 export const Route = createFileRoute("/publish")({
   head: () => ({
-    meta: [
-      { title: "发布笔记 · 大蓝书" },
-      { name: "robots", content: "noindex" },
-    ],
+    meta: [{ title: "发布笔记 · 大蓝书" }, { name: "robots", content: "noindex" }],
   }),
   component: PublishPage,
 });
 
-const topicSuggestions = ["效率", "AI 工具", "复盘", "读书", "自律", "职场", "减脂"];
+const defaultTopicSuggestions = ["效率", "AI 工具", "复盘", "读书", "自律", "职场", "减脂"];
 
 function PublishPage() {
   const navigate = useNavigate();
+  const fileInput = useRef<HTMLInputElement>(null);
   const user = useAuthUser();
   const { require, gateProps } = useLoginGate();
-  const [images, setImages] = useState<string[]>([cover1, cover2]);
+  const { data: circles = [] } = useQuery({
+    queryKey: ["dalanbook", "circles"],
+    queryFn: () => getCircles(),
+  });
+  const { data: apiTopics = [] } = useQuery({
+    queryKey: ["dalanbook", "topics"],
+    queryFn: getTopics,
+  });
+  const topicSuggestions = apiTopics.length
+    ? apiTopics.map((topic) => topic.name).slice(0, 12)
+    : defaultTopicSuggestions;
+  const joinedCircles = circles.filter((circle) => circle.joined);
+  const [images, setImages] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [topics, setTopics] = useState<string[]>(["复盘"]);
-  const [circleId, setCircleId] = useState<string>(circles[0].id);
+  const [circleId, setCircleId] = useState<string>("");
   const [location, setLocation] = useState("上海 · 徐汇");
   const [pub, setPub] = useState<"public" | "circle">("public");
   const [toast, setToast] = useState<string | null>(null);
@@ -48,16 +47,29 @@ function PublishPage() {
 
   const titleMax = 30;
   const bodyMax = 1000;
-  const canPublish = title.trim().length > 0 && images.length > 0;
+  const selectedCircleId = circleId || joinedCircles[0]?.id || "";
+  const canPublish =
+    title.trim().length > 0 && body.trim().length > 0 && images.length > 0 && !!selectedCircleId;
 
   function toggleTopic(t: string) {
     setTopics((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
   }
 
-  function addImage() {
-    // Cycle through covers for demo
-    const pool = [cover1, cover2];
-    setImages((prev) => (prev.length >= 9 ? prev : [...prev, pool[prev.length % pool.length]]));
+  async function addImages(files: FileList | null) {
+    if (!files?.length) return;
+    const selected = Array.from(files).slice(0, 9 - images.length);
+    setUploading(true);
+    setToast("正在上传图片…");
+    try {
+      const uploaded = await Promise.all(selected.map(uploadImage));
+      setImages((prev) => [...prev, ...uploaded.map((item) => item.url)]);
+      setToast(null);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "图片上传失败");
+    } finally {
+      setUploading(false);
+      if (fileInput.current) fileInput.current.value = "";
+    }
   }
 
   function removeImage(idx: number) {
@@ -73,21 +85,15 @@ function PublishPage() {
         const post = await publishPost({
           title: title.trim(),
           content: body.trim(),
-          circleId,
-          coverKey: images[0] === cover2 ? "cover-notebook" : "cover-ai-desk",
-          imageRatio: "4/5",
-          postTag: topics.includes("复盘") ? "复盘" : "经验",
+          circleId: selectedCircleId,
+          images: images.map((url) => ({ url, ratio: "4/5" as const })),
+          ratio: "4/5",
+          tag: topics.includes("复盘") ? "复盘" : "经验",
           topics,
-          authorId: user?.id,
-          authorName: user?.name,
-          location: location || undefined,
           visibility: pub,
         });
         setToast("发布成功，正在打开笔记…");
-        window.setTimeout(
-          () => navigate({ to: "/posts/$id", params: { id: post.id } }),
-          500,
-        );
+        window.setTimeout(() => navigate({ to: "/posts/$id", params: { id: post.id } }), 500);
       } catch (error) {
         setToast(error instanceof Error ? error.message : "发布失败，请稍后重试");
         setPublishing(false);
@@ -100,7 +106,7 @@ function PublishPage() {
       <div className="hidden md:block">
         <TopNav />
       </div>
-      <MobileTopBar />
+      <MobileTopBar showChannels={false} />
 
       {toast && (
         <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-full bg-foreground px-4 py-2 text-[13px] text-white shadow-[var(--shadow-floating)]">
@@ -114,10 +120,7 @@ function PublishPage() {
         <div className="glass-elevated rounded-[20px] border border-[color:var(--border)] p-4 md:p-7">
           {/* Bar */}
           <div className="mb-5 flex items-center justify-between">
-            <Link
-              to="/"
-              className="text-[13.5px] text-text-secondary hover:text-foreground"
-            >
+            <Link to="/" className="text-[13.5px] text-text-secondary hover:text-foreground">
               取消
             </Link>
             <h1 className="text-[16px] font-semibold tracking-[-0.01em] text-foreground">
@@ -152,13 +155,22 @@ function PublishPage() {
             ))}
             {images.length < 9 && (
               <button
-                onClick={addImage}
+                onClick={() => fileInput.current?.click()}
+                disabled={uploading}
                 className="flex aspect-square flex-col items-center justify-center gap-1 rounded-[12px] border border-dashed border-[color:var(--border-default)] bg-white/50 text-text-tertiary transition-colors hover:border-foreground/40 hover:text-foreground"
               >
                 <Plus className="h-5 w-5" strokeWidth={1.75} />
-                <span className="text-[11px]">添加图片</span>
+                <span className="text-[11px]">{uploading ? "上传中" : "添加图片"}</span>
               </button>
             )}
+            <input
+              ref={fileInput}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              multiple
+              className="hidden"
+              onChange={(event) => void addImages(event.target.files)}
+            />
           </div>
 
           {/* Title */}
@@ -224,8 +236,8 @@ function PublishPage() {
               发布到圈子
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {circles.slice(0, 5).map((c) => {
-                const on = c.id === circleId;
+              {joinedCircles.slice(0, 8).map((c) => {
+                const on = c.id === selectedCircleId;
                 return (
                   <button
                     key={c.id}
@@ -241,6 +253,11 @@ function PublishPage() {
                   </button>
                 );
               })}
+              {!joinedCircles.length && (
+                <Link to="/circles" className="text-[12px] text-text-secondary underline">
+                  请先加入一个圈子
+                </Link>
+              )}
             </div>
           </div>
 
@@ -275,9 +292,7 @@ function PublishPage() {
                   onClick={() => setPub(o.key)}
                   className={
                     "flex flex-1 items-center justify-center gap-1.5 rounded-[10px] py-2 transition-colors " +
-                    (on
-                      ? "bg-foreground text-white"
-                      : "text-text-secondary hover:text-foreground")
+                    (on ? "bg-foreground text-white" : "text-text-secondary hover:text-foreground")
                   }
                 >
                   <Icon className="h-4 w-4" strokeWidth={1.75} />

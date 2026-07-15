@@ -45,6 +45,7 @@ import org.dromara.web.domain.vo.LoginTenantVo;
 import org.dromara.web.domain.vo.LoginVo;
 import org.dromara.web.domain.vo.TenantListVo;
 import org.dromara.web.service.IAuthStrategy;
+import org.dromara.web.service.DalanRefreshTokenService;
 import org.dromara.web.service.SysLoginService;
 import org.dromara.web.service.SysRegisterService;
 import org.dromara.web.service.impl.PasswordAuthStrategy;
@@ -70,7 +71,7 @@ import java.util.concurrent.TimeUnit;
 @Validated
 @RequiredArgsConstructor
 @RestController
-@RequestMapping("/auth")
+@RequestMapping({"/auth", "/api/v1/auth"})
 public class AuthController {
 
     private final SocialProperties socialProperties;
@@ -82,6 +83,7 @@ public class AuthController {
     private final ISysClientService clientService;
     private final ScheduledExecutorService scheduledExecutorService;
     private final PasswordAuthStrategy passwordAuthStrategy;
+    private final DalanRefreshTokenService refreshTokenService;
 
 
     /**
@@ -90,7 +92,6 @@ public class AuthController {
      * @param body 登录信息
      * @return 结果
      */
-    @ApiEncrypt
     @PostMapping("/login")
     public R<LoginVo> login(@RequestBody String body) {
         Map<String, Object> loginParams = JsonUtils.parseMap(body);
@@ -121,7 +122,7 @@ public class AuthController {
             dto.setUserIds(List.of(userId));
             SseMessageUtils.publishMessage(dto);
         }, 5, TimeUnit.SECONDS);
-        return R.ok(loginVo);
+        return R.ok(refreshTokenService.complete(loginVo));
     }
 
     /**
@@ -196,7 +197,6 @@ public class AuthController {
     /**
      * 用户注册
      */
-    @ApiEncrypt
     @PostMapping("/register")
     public R<LoginVo> register(@Validated @RequestBody RegisterBody user) {
         user.setTenantId(TenantConstants.DEFAULT_TENANT_ID);
@@ -209,7 +209,23 @@ public class AuthController {
             return R.fail("客户端不支持密码登录");
         }
         String username = registerService.register(user);
-        return R.ok(passwordAuthStrategy.loginAfterRegister(username, user.getPassword(), user.getTenantId(), client));
+        return R.ok(refreshTokenService.complete(
+            passwordAuthStrategy.loginAfterRegister(username, user.getPassword(), user.getTenantId(), client)));
+    }
+
+    /**
+     * 使用 JWT refreshToken 换取一组新令牌（refresh token rotation）。
+     */
+    @PostMapping("/refresh")
+    public R<LoginVo> refresh(@Validated @RequestBody RefreshTokenRequest request) {
+        try {
+            return R.ok(refreshTokenService.refresh(request.refreshToken()));
+        } catch (IllegalArgumentException exception) {
+            return R.fail(401, exception.getMessage());
+        }
+    }
+
+    public record RefreshTokenRequest(@NotBlank String refreshToken) {
     }
 
     @ApiEncrypt

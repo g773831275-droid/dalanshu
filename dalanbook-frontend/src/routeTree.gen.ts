@@ -12,8 +12,10 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as PublishRouteImport } from './routes/publish'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as TopicsIndexRouteImport } from './routes/topics.index'
 import { Route as CirclesIndexRouteImport } from './routes/circles.index'
 import { Route as UIdRouteImport } from './routes/u.$id'
+import { Route as TopicsSlugRouteImport } from './routes/topics.$slug'
 import { Route as PostsIdRouteImport } from './routes/posts.$id'
 import { Route as CirclesIdRouteImport } from './routes/circles.$id'
 
@@ -32,6 +34,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TopicsIndexRoute = TopicsIndexRouteImport.update({
+  id: '/topics/',
+  path: '/topics/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CirclesIndexRoute = CirclesIndexRouteImport.update({
   id: '/circles/',
   path: '/circles/',
@@ -40,6 +47,11 @@ const CirclesIndexRoute = CirclesIndexRouteImport.update({
 const UIdRoute = UIdRouteImport.update({
   id: '/u/$id',
   path: '/u/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TopicsSlugRoute = TopicsSlugRouteImport.update({
+  id: '/topics/$slug',
+  path: '/topics/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PostsIdRoute = PostsIdRouteImport.update({
@@ -59,8 +71,10 @@ export interface FileRoutesByFullPath {
   '/publish': typeof PublishRoute
   '/circles/$id': typeof CirclesIdRoute
   '/posts/$id': typeof PostsIdRoute
+  '/topics/$slug': typeof TopicsSlugRoute
   '/u/$id': typeof UIdRoute
   '/circles/': typeof CirclesIndexRoute
+  '/topics/': typeof TopicsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -68,8 +82,10 @@ export interface FileRoutesByTo {
   '/publish': typeof PublishRoute
   '/circles/$id': typeof CirclesIdRoute
   '/posts/$id': typeof PostsIdRoute
+  '/topics/$slug': typeof TopicsSlugRoute
   '/u/$id': typeof UIdRoute
   '/circles': typeof CirclesIndexRoute
+  '/topics': typeof TopicsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -78,8 +94,10 @@ export interface FileRoutesById {
   '/publish': typeof PublishRoute
   '/circles/$id': typeof CirclesIdRoute
   '/posts/$id': typeof PostsIdRoute
+  '/topics/$slug': typeof TopicsSlugRoute
   '/u/$id': typeof UIdRoute
   '/circles/': typeof CirclesIndexRoute
+  '/topics/': typeof TopicsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -89,8 +107,10 @@ export interface FileRouteTypes {
     | '/publish'
     | '/circles/$id'
     | '/posts/$id'
+    | '/topics/$slug'
     | '/u/$id'
     | '/circles/'
+    | '/topics/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -98,8 +118,10 @@ export interface FileRouteTypes {
     | '/publish'
     | '/circles/$id'
     | '/posts/$id'
+    | '/topics/$slug'
     | '/u/$id'
     | '/circles'
+    | '/topics'
   id:
     | '__root__'
     | '/'
@@ -107,8 +129,10 @@ export interface FileRouteTypes {
     | '/publish'
     | '/circles/$id'
     | '/posts/$id'
+    | '/topics/$slug'
     | '/u/$id'
     | '/circles/'
+    | '/topics/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -117,8 +141,10 @@ export interface RootRouteChildren {
   PublishRoute: typeof PublishRoute
   CirclesIdRoute: typeof CirclesIdRoute
   PostsIdRoute: typeof PostsIdRoute
+  TopicsSlugRoute: typeof TopicsSlugRoute
   UIdRoute: typeof UIdRoute
   CirclesIndexRoute: typeof CirclesIndexRoute
+  TopicsIndexRoute: typeof TopicsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -144,6 +170,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/topics/': {
+      id: '/topics/'
+      path: '/topics'
+      fullPath: '/topics/'
+      preLoaderRoute: typeof TopicsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/circles/': {
       id: '/circles/'
       path: '/circles'
@@ -156,6 +189,13 @@ declare module '@tanstack/react-router' {
       path: '/u/$id'
       fullPath: '/u/$id'
       preLoaderRoute: typeof UIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/topics/$slug': {
+      id: '/topics/$slug'
+      path: '/topics/$slug'
+      fullPath: '/topics/$slug'
+      preLoaderRoute: typeof TopicsSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/posts/$id': {
@@ -181,8 +221,10 @@ const rootRouteChildren: RootRouteChildren = {
   PublishRoute: PublishRoute,
   CirclesIdRoute: CirclesIdRoute,
   PostsIdRoute: PostsIdRoute,
+  TopicsSlugRoute: TopicsSlugRoute,
   UIdRoute: UIdRoute,
   CirclesIndexRoute: CirclesIndexRoute,
+  TopicsIndexRoute: TopicsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -1,9 +1,16 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
 import { Eye, EyeOff, Loader2, ArrowLeft } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
 import { authStore } from "@/lib/authStore";
+import {
+  getCaptcha,
+  loginWithPassword,
+  registerWithEmail,
+  sendEmailCode,
+  type Captcha,
+} from "@/lib/authApi";
 import cover from "@/assets/cover-ai-desk.jpg";
 
 const searchSchema = z.object({
@@ -37,9 +44,9 @@ const loginSchema = z.object({
 
 const registerSchema = z
   .object({
-    nickname: z.string().trim().min(2, "昵称至少 2 位").max(20, "昵称最多 20 位"),
     email: z.string().trim().email("邮箱格式不正确").max(120),
-    password: z.string().min(6, "密码至少 6 位").max(64),
+    emailCode: z.string().regex(/^\d{6}$/, "邮箱验证码为 6 位数字"),
+    password: z.string().min(8, "密码至少 8 位").max(30),
     confirm: z.string(),
     agree: z.literal(true, { message: "请阅读并同意用户协议" }),
   })
@@ -71,9 +78,7 @@ function AuthPage() {
           />
           <div className="absolute inset-0 bg-gradient-to-br from-black/60 via-black/40 to-black/70" />
           <div className="relative z-10">
-            <Link to="/" className="inline-flex items-center gap-2 text-white">
-              <Logo />
-            </Link>
+            <Logo className="text-white [&_span]:text-white" />
           </div>
           <div className="relative z-10 max-w-md text-white">
             <h2 className="text-[30px] font-semibold leading-tight tracking-[-0.02em]">
@@ -208,6 +213,43 @@ function Field({
 const inputCls =
   "h-11 w-full rounded-[10px] border border-[color:var(--border-default)] bg-white/70 px-3 text-[14px] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] placeholder:text-text-tertiary focus:border-black/30 focus:outline-none focus:ring-[3px] focus:ring-black/5";
 
+function CaptchaInput({
+  captcha,
+  value,
+  onChange,
+  onRefresh,
+  error,
+}: {
+  captcha: Captcha | null;
+  value: string;
+  onChange: (value: string) => void;
+  onRefresh: () => void;
+  error?: string;
+}) {
+  if (!captcha?.captchaEnabled) return null;
+  return (
+    <Field label="图形验证码" error={error}>
+      <div className="flex gap-2">
+        <input
+          className={inputCls + " flex-1"}
+          placeholder="请输入计算结果"
+          value={value}
+          onChange={(event) => onChange(event.target.value.trim())}
+          autoComplete="off"
+        />
+        <button
+          type="button"
+          onClick={onRefresh}
+          className="h-11 w-[112px] overflow-hidden rounded-[10px] border border-[color:var(--border-default)] bg-white"
+          title="看不清，换一张"
+        >
+          {captcha.img ? <img src={captcha.img} alt="图形验证码" className="h-full w-full object-cover" /> : "刷新"}
+        </button>
+      </div>
+    </Field>
+  );
+}
+
 function LoginForm() {
   const navigate = useNavigate();
   const search = Route.useSearch();
@@ -216,8 +258,19 @@ function LoginForm() {
   const [showPwd, setShowPwd] = useState(false);
   const [remember, setRemember] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [captcha, setCaptcha] = useState<Captcha | null>(null);
+  const [captchaCode, setCaptchaCode] = useState("");
 
-  function onSubmit(e: React.FormEvent) {
+  const refreshCaptcha = () => {
+    setCaptchaCode("");
+    void getCaptcha().then(setCaptcha).catch((error) =>
+      setErrors((current) => ({ ...current, form: error instanceof Error ? error.message : "验证码加载失败" })),
+    );
+  };
+
+  useEffect(refreshCaptcha, []);
+
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     const r = loginSchema.safeParse(values);
     if (!r.success) {
@@ -226,12 +279,25 @@ function LoginForm() {
       setErrors(errs);
       return;
     }
+    if (captcha?.captchaEnabled && !captchaCode) {
+      setErrors({ captcha: "请输入图形验证码" });
+      return;
+    }
     setErrors({});
     setLoading(true);
-    setTimeout(() => {
-      authStore.set({ id: "me", name: values.account.split("@")[0] || "我" });
+    try {
+      const user = await loginWithPassword(values.account, values.password, {
+        uuid: captcha?.uuid,
+        code: captchaCode,
+      });
+      authStore.set(user);
       navigate({ to: search.redirect ?? "/" });
-    }, 600);
+    } catch (error) {
+      setErrors({ form: error instanceof Error ? error.message : "登录失败，请稍后重试" });
+      refreshCaptcha();
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -245,6 +311,13 @@ function LoginForm() {
           autoComplete="username"
         />
       </Field>
+      <CaptchaInput
+        captcha={captcha}
+        value={captchaCode}
+        onChange={setCaptchaCode}
+        onRefresh={refreshCaptcha}
+        error={errors.captcha}
+      />
       <Field label="密码" error={errors.password}>
         <div className="relative">
           <input
@@ -285,6 +358,8 @@ function LoginForm() {
         </button>
       </div>
 
+      {errors.form && <p className="text-[12px] text-[#D94B4B]">{errors.form}</p>}
+
       <button
         type="submit"
         disabled={loading}
@@ -301,8 +376,8 @@ function RegisterForm() {
   const navigate = useNavigate();
   const search = Route.useSearch();
   const [values, setValues] = useState({
-    nickname: "",
     email: "",
+    emailCode: "",
     password: "",
     confirm: "",
     agree: false,
@@ -310,6 +385,24 @@ function RegisterForm() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [countdown, setCountdown] = useState(0);
+  const [captcha, setCaptcha] = useState<Captcha | null>(null);
+  const [captchaCode, setCaptchaCode] = useState("");
+
+  const refreshCaptcha = () => {
+    setCaptchaCode("");
+    void getCaptcha().then(setCaptcha).catch((error) =>
+      setErrors((current) => ({ ...current, form: error instanceof Error ? error.message : "验证码加载失败" })),
+    );
+  };
+
+  useEffect(refreshCaptcha, []);
+  useEffect(() => {
+    if (countdown <= 0) return;
+    const timer = window.setTimeout(() => setCountdown((value) => value - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [countdown]);
 
   const strength = useMemo(() => {
     const p = values.password;
@@ -321,7 +414,38 @@ function RegisterForm() {
     return s;
   }, [values.password]);
 
-  function onSubmit(e: React.FormEvent) {
+  async function requestEmailCode() {
+    const email = z.string().trim().email().safeParse(values.email);
+    if (!email.success) {
+      setErrors({ email: "请输入正确的邮箱" });
+      return;
+    }
+    if (captcha?.captchaEnabled && !captchaCode) {
+      setErrors({ captcha: "请先输入图形验证码" });
+      return;
+    }
+    setSending(true);
+    setErrors({});
+    try {
+      const devCode = await sendEmailCode({
+        email: values.email,
+        purpose: "register",
+        uuid: captcha?.uuid,
+        code: captchaCode,
+      });
+      if (devCode) {
+        setValues((current) => ({ ...current, emailCode: devCode }));
+      }
+      setCountdown(60);
+    } catch (error) {
+      setErrors({ form: error instanceof Error ? error.message : "验证码发送失败" });
+    } finally {
+      setSending(false);
+      refreshCaptcha();
+    }
+  }
+
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     const r = registerSchema.safeParse(values);
     if (!r.success) {
@@ -332,23 +456,23 @@ function RegisterForm() {
     }
     setErrors({});
     setLoading(true);
-    setTimeout(() => {
-      authStore.set({ id: "me", name: values.nickname });
+    try {
+      const user = await registerWithEmail({
+        email: values.email,
+        emailCode: values.emailCode,
+        password: values.password,
+      });
+      authStore.set(user);
       navigate({ to: search.redirect ?? "/" });
-    }, 700);
+    } catch (error) {
+      setErrors({ form: error instanceof Error ? error.message : "注册失败，请稍后重试" });
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
     <form onSubmit={onSubmit} className="mt-5 space-y-3">
-      <Field label="昵称" error={errors.nickname}>
-        <input
-          className={inputCls}
-          placeholder="给自己取个名字"
-          value={values.nickname}
-          onChange={(e) => setValues((v) => ({ ...v, nickname: e.target.value }))}
-          maxLength={20}
-        />
-      </Field>
       <Field label="邮箱" error={errors.email}>
         <input
           className={inputCls}
@@ -358,12 +482,42 @@ function RegisterForm() {
           autoComplete="email"
         />
       </Field>
+      <CaptchaInput
+        captcha={captcha}
+        value={captchaCode}
+        onChange={setCaptchaCode}
+        onRefresh={refreshCaptcha}
+        error={errors.captcha}
+      />
+      <Field label="邮箱验证码" error={errors.emailCode}>
+        <div className="relative">
+          <input
+            className={inputCls + " pr-28"}
+            placeholder="6 位数字"
+            inputMode="numeric"
+            maxLength={6}
+            value={values.emailCode}
+            onChange={(event) =>
+              setValues((current) => ({ ...current, emailCode: event.target.value.replace(/\D/g, "") }))
+            }
+            autoComplete="one-time-code"
+          />
+          <button
+            type="button"
+            disabled={sending || countdown > 0 || !values.email.includes("@")}
+            onClick={() => void requestEmailCode()}
+            className="absolute right-1.5 top-1/2 h-8 -translate-y-1/2 rounded-[8px] px-3 text-[12px] font-medium text-foreground hover:bg-black/[0.04] disabled:text-text-tertiary"
+          >
+            {countdown > 0 ? `${countdown}s 后重发` : sending ? "发送中…" : "获取验证码"}
+          </button>
+        </div>
+      </Field>
       <Field label="密码" error={errors.password}>
         <div className="relative">
           <input
             className={inputCls + " pr-10"}
             type={showPwd ? "text" : "password"}
-            placeholder="至少 6 位"
+            placeholder="8–30 位"
             value={values.password}
             onChange={(e) => setValues((v) => ({ ...v, password: e.target.value }))}
             autoComplete="new-password"
@@ -420,6 +574,8 @@ function RegisterForm() {
       {errors.agree && (
         <span className="block text-[11.5px] text-[#D94B4B]">{errors.agree}</span>
       )}
+
+      {errors.form && <p className="text-[12px] text-[#D94B4B]">{errors.form}</p>}
 
       <button
         type="submit"
