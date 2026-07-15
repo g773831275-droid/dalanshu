@@ -1,4 +1,4 @@
-import logoAsset from "@/assets/logo-dalanbook.jpg.asset.json";
+import logoAsset from "@/assets/logo-dalanbook-blue.png";
 
 export function Logo({
   size = 28,
@@ -12,7 +12,7 @@ export function Logo({
   return (
     <a href="/" className={`flex items-center gap-2 ${className}`}>
       <img
-        src={logoAsset.url}
+        src={logoAsset}
         alt="大蓝书"
         width={size}
         height={size}

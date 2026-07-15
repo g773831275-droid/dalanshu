@@ -12,6 +12,8 @@ export type AuthModalState = {
 
 const userListeners = new Set<() => void>();
 const modalListeners = new Set<() => void>();
+let cachedUserRaw: string | null | undefined;
+let cachedUser: MockUser | null = null;
 
 let modalState: AuthModalState = { open: false, tab: "login" };
 
@@ -19,9 +21,14 @@ function read(): MockUser | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as MockUser) : null;
+    if (raw === cachedUserRaw) return cachedUser;
+    cachedUserRaw = raw;
+    cachedUser = raw ? (JSON.parse(raw) as MockUser) : null;
+    return cachedUser;
   } catch {
-    return null;
+    cachedUserRaw = null;
+    cachedUser = null;
+    return cachedUser;
   }
 }
 
@@ -36,8 +43,16 @@ export const authStore = {
   get: read,
   set(user: MockUser | null) {
     if (typeof window === "undefined") return;
-    if (user) window.localStorage.setItem(KEY, JSON.stringify(user));
-    else window.localStorage.removeItem(KEY);
+    if (user) {
+      const raw = JSON.stringify(user);
+      window.localStorage.setItem(KEY, raw);
+      cachedUserRaw = raw;
+      cachedUser = user;
+    } else {
+      window.localStorage.removeItem(KEY);
+      cachedUserRaw = null;
+      cachedUser = null;
+    }
     emitUser();
   },
   subscribe(l: () => void) {

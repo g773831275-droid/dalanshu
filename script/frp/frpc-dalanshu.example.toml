@@ -1,0 +1,35 @@
+serverAddr = "82.156.43.138"
+serverPort = 7000
+user = "macbook"
+loginFailExit = false
+
+transport.protocol = "tcp"
+transport.tls.enable = true
+transport.tls.serverName = "82.156.43.138"
+transport.tls.trustedCaFile = "/Users/dante/.config/frp/ca.crt"
+transport.wireProtocol = "v2"
+
+auth.method = "token"
+auth.tokenSource.type = "file"
+auth.tokenSource.file.path = "/Users/dante/.config/frp/token"
+
+[[proxies]]
+name = "plus-ui"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 5173
+subdomain = "dev-admin"
+
+[[proxies]]
+name = "dalanbook-frontend"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 5174
+subdomain = "dev-web"
+
+[[proxies]]
+name = "java-api"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 8080
+subdomain = "dev-api"

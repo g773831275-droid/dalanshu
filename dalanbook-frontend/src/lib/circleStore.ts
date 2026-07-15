@@ -3,24 +3,35 @@ import type { Circle } from "@/data/mockCircles";
 import { circles as baseCircles } from "@/data/mockCircles";
 
 const KEY = "dalanbook.circles.user";
+const EMPTY_USER_CIRCLES: UserCircle[] = [];
 
 export type UserCircle = Circle & { isMine: true };
 
 const listeners = new Set<() => void>();
+let cachedRaw: string | null | undefined;
+let cachedCircles: UserCircle[] = EMPTY_USER_CIRCLES;
 
 function read(): UserCircle[] {
-  if (typeof window === "undefined") return [];
+  if (typeof window === "undefined") return EMPTY_USER_CIRCLES;
   try {
     const raw = window.localStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as UserCircle[]) : [];
+    if (raw === cachedRaw) return cachedCircles;
+    cachedRaw = raw;
+    cachedCircles = raw ? (JSON.parse(raw) as UserCircle[]) : EMPTY_USER_CIRCLES;
+    return cachedCircles;
   } catch {
-    return [];
+    cachedRaw = null;
+    cachedCircles = EMPTY_USER_CIRCLES;
+    return cachedCircles;
   }
 }
 
 function write(list: UserCircle[]) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(KEY, JSON.stringify(list));
+  const raw = JSON.stringify(list);
+  window.localStorage.setItem(KEY, raw);
+  cachedRaw = raw;
+  cachedCircles = list;
   listeners.forEach((l) => l());
 }
 
@@ -64,8 +75,8 @@ export const circleStore = {
 export function useUserCircles(): UserCircle[] {
   return useSyncExternalStore(
     circleStore.subscribe,
-    () => circleStore.get(),
-    () => [] as UserCircle[],
+    circleStore.get,
+    () => EMPTY_USER_CIRCLES,
   );
 }
 

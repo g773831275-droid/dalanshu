@@ -133,6 +133,8 @@ tenant:
     - sys_client
     - sys_oss_config
     - flow_spel
+    - dalan_circle
+    - dalan_post
 
 # MyBatisPlus配置
 # https://baomidou.com/config/

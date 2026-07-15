@@ -16,6 +16,7 @@ import { MobileTopBar } from "@/components/home/MobileTopBar";
 import { LoginGateModal, useLoginGate } from "@/components/auth/LoginGate";
 import { useAuthUser } from "@/lib/authStore";
 import { circles } from "@/data/mockCircles";
+import { publishPost } from "@/lib/dalanbookApi";
 import cover1 from "@/assets/cover-ai-desk.jpg";
 import cover2 from "@/assets/cover-notebook.jpg";
 
@@ -43,6 +44,7 @@ function PublishPage() {
   const [location, setLocation] = useState("上海 · 徐汇");
   const [pub, setPub] = useState<"public" | "circle">("public");
   const [toast, setToast] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState(false);
 
   const titleMax = 30;
   const bodyMax = 1000;
@@ -63,10 +65,33 @@ function PublishPage() {
   }
 
   function onPublish() {
-    if (!canPublish) return;
-    require("发布笔记", () => {
-      setToast("发布成功，正在跳转…");
-      setTimeout(() => navigate({ to: "/" }), 1200);
+    if (!canPublish || publishing) return;
+    require("发布笔记", async () => {
+      setPublishing(true);
+      setToast("正在发布…");
+      try {
+        const post = await publishPost({
+          title: title.trim(),
+          content: body.trim(),
+          circleId,
+          coverKey: images[0] === cover2 ? "cover-notebook" : "cover-ai-desk",
+          imageRatio: "4/5",
+          postTag: topics.includes("复盘") ? "复盘" : "经验",
+          topics,
+          authorId: user?.id,
+          authorName: user?.name,
+          location: location || undefined,
+          visibility: pub,
+        });
+        setToast("发布成功，正在打开笔记…");
+        window.setTimeout(
+          () => navigate({ to: "/posts/$id", params: { id: post.id } }),
+          500,
+        );
+      } catch (error) {
+        setToast(error instanceof Error ? error.message : "发布失败，请稍后重试");
+        setPublishing(false);
+      }
     });
   }
 
@@ -268,7 +293,7 @@ function PublishPage() {
               预览
             </button>
             <button
-              disabled={!canPublish}
+              disabled={!canPublish || publishing}
               onClick={onPublish}
               className={
                 "h-10 rounded-[12px] px-5 text-[13.5px] font-medium transition-colors " +
@@ -277,7 +302,7 @@ function PublishPage() {
                   : "cursor-not-allowed bg-[color:var(--action-muted)] text-text-tertiary")
               }
             >
-              发布
+              {publishing ? "发布中…" : "发布"}
             </button>
           </div>
         </div>
@@ -289,7 +314,7 @@ function PublishPage() {
           预览
         </button>
         <button
-          disabled={!canPublish}
+          disabled={!canPublish || publishing}
           onClick={onPublish}
           className={
             "h-10 flex-[2] rounded-[12px] text-[14px] font-medium transition-colors " +
@@ -298,7 +323,7 @@ function PublishPage() {
               : "cursor-not-allowed bg-[color:var(--action-muted)] text-text-tertiary")
           }
         >
-          发布
+          {publishing ? "发布中…" : "发布"}
         </button>
       </div>
 

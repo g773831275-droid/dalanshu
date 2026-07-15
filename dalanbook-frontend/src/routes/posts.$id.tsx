@@ -15,10 +15,11 @@ import { MobileTopBar } from "@/components/home/MobileTopBar";
 import { LoginGateModal, useLoginGate } from "@/components/auth/LoginGate";
 import { posts, type Post } from "@/data/mockPosts";
 import { circles } from "@/data/mockCircles";
+import { getPost } from "@/lib/dalanbookApi";
 
 export const Route = createFileRoute("/posts/$id")({
-  loader: ({ params }) => {
-    const post = posts.find((p) => p.id === params.id);
+  loader: async ({ params }) => {
+    const post = posts.find((p) => p.id === params.id) ?? (await getPost(params.id).catch(() => undefined));
     if (!post) throw notFound();
     return { post };
   },
