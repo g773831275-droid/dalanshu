@@ -3,13 +3,16 @@ package org.dromara.common.oss.factory;
 import lombok.extern.slf4j.Slf4j;
 import org.dromara.common.core.constant.CacheNames;
 import org.dromara.common.core.utils.StringUtils;
+import org.dromara.common.core.utils.SpringUtils;
 import org.dromara.common.json.utils.JsonUtils;
 import org.dromara.common.oss.constant.OssConstant;
 import org.dromara.common.oss.core.OssClient;
 import org.dromara.common.oss.exception.OssException;
 import org.dromara.common.oss.properties.OssProperties;
+import org.dromara.common.oss.properties.OssPropertiesResolver;
 import org.dromara.common.redis.utils.CacheUtils;
 import org.dromara.common.redis.utils.RedisUtils;
+import org.springframework.core.env.Environment;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -47,6 +50,7 @@ public class OssFactory {
             throw new OssException("系统异常, '" + configKey + "'配置信息不存在!");
         }
         OssProperties properties = JsonUtils.parseObject(json, OssProperties.class);
+        properties = OssPropertiesResolver.resolve(configKey, properties, SpringUtils.getBean(Environment.class));
         // 使用租户标识避免多个租户相同key实例覆盖
         String key = configKey;
         if (StringUtils.isNotBlank(properties.getTenantId())) {

@@ -30,7 +30,12 @@ public interface OssConstant {
     /**
      * 云服务商
      */
-    String[] CLOUD_SERVICE = new String[] {"aliyun", "qcloud", "qiniu", "obs"};
+    String[] CLOUD_SERVICE = new String[] {"aliyun", "qcloud", "qiniu", "obs", "volces.com"};
+
+    /**
+     * 火山引擎 TOS S3 兼容域名
+     */
+    String VOLCENGINE_TOS_ENDPOINT = "tos-s3-";
 
     /**
      * https 状态

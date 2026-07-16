@@ -12,6 +12,8 @@ import org.dromara.common.oss.entity.UploadResult;
 import org.dromara.common.oss.enums.AccessPolicyType;
 import org.dromara.common.oss.exception.OssException;
 import org.dromara.common.oss.properties.OssProperties;
+import org.dromara.common.oss.utils.OssEndpointUtils;
+import software.amazon.awssdk.http.Protocol;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.async.AsyncResponseTransformer;
@@ -88,7 +90,17 @@ public class OssClient {
                 AwsBasicCredentials.create(properties.getAccessKey(), properties.getSecretKey()));
 
             // MinIO 使用 HTTPS 限制使用域名访问，站点填域名。需要启用路径样式访问
-            boolean isStyle = !StringUtils.containsAny(properties.getEndpoint(), OssConstant.CLOUD_SERVICE);
+            boolean isStyle = !OssEndpointUtils.isCloudService(properties.getEndpoint());
+
+            NettyNioAsyncHttpClient.Builder httpClientBuilder = NettyNioAsyncHttpClient.builder()
+                .connectionTimeout(Duration.ofSeconds(60))
+                .connectionAcquisitionTimeout(Duration.ofSeconds(30))
+                .maxConcurrency(100)
+                .maxPendingConnectionAcquires(1000);
+            // TOS 的 S3 兼容接口只支持 VirtualHostStyle，且官方要求禁用 HTTP/2。
+            if (OssEndpointUtils.isVolcengineTos(properties.getEndpoint())) {
+                httpClientBuilder.protocol(Protocol.HTTP1_1);
+            }
 
             // 创建AWS基于 Netty 的 S3 客户端
             this.client = S3AsyncClient.builder()
@@ -96,12 +108,7 @@ public class OssClient {
                 .endpointOverride(URI.create(getEndpoint()))
                 .region(of())
                 .forcePathStyle(isStyle)
-                .httpClient(NettyNioAsyncHttpClient.builder()
-                    .connectionTimeout(Duration.ofSeconds(60))
-                    .connectionAcquisitionTimeout(Duration.ofSeconds(30))
-                    .maxConcurrency(100)
-                    .maxPendingConnectionAcquires(1000)
-                    .build())
+                .httpClient(httpClientBuilder.build())
                 .build();
 
             //AWS基于 CRT 的 S3 AsyncClient 实例用作 S3 传输管理器的底层客户端
@@ -328,7 +335,7 @@ public class OssClient {
             client.deleteObject(
                 x -> x.bucket(properties.getBucketName())
                     .key(removeBaseUrl(path))
-                    .build());
+                    .build()).join();
         } catch (Exception e) {
             throw new OssException("删除文件失败，请检查配置信息:[" + e.getMessage() + "]");
         }
@@ -435,9 +442,7 @@ public class OssClient {
      */
     public String getEndpoint() {
         // 根据配置文件中的是否使用 HTTPS，设置协议头部
-        String header = getIsHttps();
-        // 拼接协议头部和终端点，得到完整的终端点 URL
-        return header + properties.getEndpoint();
+        return OssEndpointUtils.withProtocol(properties.getEndpoint(), isHttps());
     }
 
     /**
@@ -449,20 +454,20 @@ public class OssClient {
         // 从配置中获取域名、终端点、是否使用 HTTPS 等信息
         String domain = properties.getDomain();
         String endpoint = properties.getEndpoint();
-        String header = getIsHttps();
+        boolean https = isHttps();
 
         // 如果是云服务商，直接返回域名或终端点
-        if (StringUtils.containsAny(endpoint, OssConstant.CLOUD_SERVICE)) {
-            return StringUtils.isNotEmpty(domain) ? header + domain : header + endpoint;
+        if (OssEndpointUtils.isCloudService(endpoint)) {
+            return OssEndpointUtils.withProtocol(StringUtils.isNotEmpty(domain) ? domain : endpoint, https);
         }
 
         // 如果是 MinIO，处理域名并返回
         if (StringUtils.isNotEmpty(domain)) {
-            return domain.startsWith(Constants.HTTPS) || domain.startsWith(Constants.HTTP) ? domain : header + domain;
+            return OssEndpointUtils.withProtocol(domain, https);
         }
 
         // 返回终端点
-        return header + endpoint;
+        return OssEndpointUtils.withProtocol(endpoint, https);
     }
 
     /**
@@ -487,18 +492,20 @@ public class OssClient {
     public String getUrl() {
         String domain = properties.getDomain();
         String endpoint = properties.getEndpoint();
-        String header = getIsHttps();
+        boolean https = isHttps();
         // 云服务商直接返回
-        if (StringUtils.containsAny(endpoint, OssConstant.CLOUD_SERVICE)) {
-            return header + (StringUtils.isNotEmpty(domain) ? domain : properties.getBucketName() + "." + endpoint);
+        if (OssEndpointUtils.isCloudService(endpoint)) {
+            String host = StringUtils.isNotEmpty(domain) ? domain : properties.getBucketName() + "." + endpoint;
+            return OssEndpointUtils.withProtocol(host, https);
         }
         // MinIO 单独处理
         if (StringUtils.isNotEmpty(domain)) {
             // 如果 domain 以 "https://" 或 "http://" 开头
             return (domain.startsWith(Constants.HTTPS) || domain.startsWith(Constants.HTTP)) ?
-                domain + StringUtils.SLASH + properties.getBucketName() : header + domain + StringUtils.SLASH + properties.getBucketName();
+                domain + StringUtils.SLASH + properties.getBucketName() :
+                OssEndpointUtils.withProtocol(domain, https) + StringUtils.SLASH + properties.getBucketName();
         }
-        return header + endpoint + StringUtils.SLASH + properties.getBucketName();
+        return OssEndpointUtils.withProtocol(endpoint, https) + StringUtils.SLASH + properties.getBucketName();
     }
 
     /**
@@ -543,6 +550,10 @@ public class OssClient {
      */
     public String getIsHttps() {
         return OssConstant.IS_HTTPS.equals(properties.getIsHttps()) ? Constants.HTTPS : Constants.HTTP;
+    }
+
+    private boolean isHttps() {
+        return OssConstant.IS_HTTPS.equals(properties.getIsHttps());
     }
 
     /**
