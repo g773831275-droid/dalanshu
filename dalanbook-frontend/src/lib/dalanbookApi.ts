@@ -31,13 +31,14 @@ export type Topic = {
 
 type Author = { id: string; name: string; avatarUrl?: string; avatarColor: string };
 type CircleBrief = { id: string; name: string };
-type ImageDto = { url: string; ratio: Post["ratio"] };
+type ImageDto = { ossId?: string; url: string; ratio: Post["ratio"] };
+type ImageInput = { ossId: string; url: string; ratio: Post["ratio"] };
 
 export type ApiPost = {
     id: string;
     title: string;
     content: string;
-    images: ImageDto[];
+    images: ImageInput[];
     cover: string;
     ratio: Post["ratio"];
     tag?: PostTag;
@@ -125,7 +126,7 @@ export type PublishPostInput = {
 
 export type UploadResult = {
     url: string;
-    ossId: number;
+    ossId: string;
     contentType: string;
     size: number;
 };
@@ -200,7 +201,13 @@ export async function getPost(id: string): Promise<ApiPost> {
 
 export async function publishPost(input: PublishPostInput): Promise<ApiPost> {
     if (useMockApi) return publishMockPost(input);
-    return authRequest<ApiPost>("/api/v1/posts", { method: "POST", body: JSON.stringify(input) });
+    return authRequest<ApiPost>("/api/v1/posts", {
+        method: "POST",
+        body: JSON.stringify({
+            ...input,
+            images: input.images.map(({ ossId, ratio }) => ({ ossId, ratio })),
+        }),
+    });
 }
 
 export async function uploadImage(file: File): Promise<UploadResult> {

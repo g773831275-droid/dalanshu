@@ -64,7 +64,7 @@ public interface CacheNames {
     /**
      * OSS内容
      */
-    String SYS_OSS = "sys_oss#30d";
+    String SYS_OSS = "sys_oss_v2#30d";
 
     /**
      * 角色自定义权限

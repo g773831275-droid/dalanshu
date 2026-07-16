@@ -230,6 +230,6 @@ public class DalanbookV1Controller {
         }
         SysOssVo oss = ossService.upload(file);
         return ResponseEntity.status(HttpStatus.CREATED)
-            .body(new UploadResponse(oss.getUrl(), oss.getOssId(), file.getContentType(), file.getSize()));
+            .body(new UploadResponse(oss.getUrl(), String.valueOf(oss.getOssId()), file.getContentType(), file.getSize()));
     }
 }

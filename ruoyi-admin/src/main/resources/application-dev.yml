@@ -1,3 +1,6 @@
+--- # 本机私密配置（位于 Git 仓库外）
+spring.config.import: optional:file:${user.home}/.config/dalanshu/database.properties,optional:file:${user.home}/.config/dalanshu/tos.properties,optional:file:${user.home}/.config/dalanshu/redis.properties,optional:file:${user.home}/.config/dalanshu/mail.properties
+
 --- # 监控中心配置
 spring.boot.admin.client:
   # 增加客户端开关
@@ -49,7 +52,7 @@ spring:
           # rewriteBatchedStatements=true 批处理优化 大幅提升批量插入更新删除性能(对数据库有性能损耗 使用批量操作应考虑性能问题)
           url: "${DALANSHU_DB_URL:jdbc:mysql://127.0.0.1:13306/dalanshu_dev?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&serverTimezone=GMT%2B8&autoReconnect=true&rewriteBatchedStatements=true&allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true}"
           username: "${DALANSHU_DB_USERNAME:dalanshu_dev_app}"
-          password: "${DALANSHU_DB_PASSWORD:dalanshu_dev_*#41k}"
+          password: "${DALANSHU_DB_PASSWORD}"
 #        # 从库数据源
 #        slave:
 #          lazy: true
@@ -131,34 +134,27 @@ redisson:
     # 发布和订阅连接池大小
     subscriptionConnectionPoolSize: 50
 
---- # mail 邮件发送
-# TODO DALANSHU_MAIL_PROVIDER: 正式环境整体替换为火山引擎邮件推送
-# 首期固定使用 QQ SMTP，授权码仍必须通过环境变量提供，禁止提交到 Git。
+--- # mail 邮件发送（阿里云 DirectMail）
 mail:
   enabled: true
-  host: smtp.qq.com
+  host: ${DALANSHU_MAIL_HOST:smtpdm.aliyun.com}
   port: 465
   # 是否需要用户名密码验证
   auth: true
   # 发送方，遵循RFC-822标准
-  from: 858178877@qq.com
-  # 用户名（注意：如果使用foxmail邮箱，此处user为qq号）
-  user: 858178877@qq.com
-  # 密码（注意，某些邮箱需要为SMTP服务单独设置密码，详情查看相关帮助）
+  from: ${DALANSHU_MAIL_FROM:cilantro@mail.idalanshu.com}
+  # DirectMail 要求 SMTP 用户名和发件人一致
+  user: ${DALANSHU_MAIL_USERNAME:cilantro@mail.idalanshu.com}
+  # DirectMail SMTP 密码只能通过环境变量注入
   pass: ${DALANSHU_MAIL_PASSWORD:}
-  # 使用 STARTTLS安全连接，STARTTLS是对纯文本通信协议的扩展。
-  starttlsEnable: true
-  # 使用SSL安全连接
+  # 465 端口使用隐式 SSL，不同时开启 STARTTLS
+  starttlsEnable: false
   sslEnable: true
-  # SMTP超时时长，单位毫秒，缺省值不超时
-  timeout: 0
-  # Socket连接超时值，单位毫秒，缺省值不超时
-  connectionTimeout: 0
+  timeout: 10000
+  connectionTimeout: 10000
 
-# 仅本地开发：未配置 SMTP 授权码时将邮箱验证码回显给前端，生产配置必须保持 false。
 dalanbook:
   auth:
-    expose-dev-email-code: true
     default-user-dept-id: 108
 
 --- # sms 短信 支持 阿里云 腾讯云 云片 等等各式各样的短信服务商

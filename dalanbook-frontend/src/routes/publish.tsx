@@ -6,7 +6,7 @@ import { TopNav } from "@/components/home/TopNav";
 import { MobileTopBar } from "@/components/home/MobileTopBar";
 import { LoginGateModal, useLoginGate } from "@/components/auth/LoginGate";
 import { useAuthUser } from "@/lib/authStore";
-import { getCircles, publishPost, uploadImage } from "@/lib/dalanbookApi";
+import { getCircles, publishPost, uploadImage, type UploadResult } from "@/lib/dalanbookApi";
 
 export const Route = createFileRoute("/publish")({
   head: () => ({
@@ -25,7 +25,7 @@ function PublishPage() {
     queryFn: () => getCircles(),
   });
   const joinedCircles = circles.filter((circle) => circle.joined);
-  const [images, setImages] = useState<string[]>([]);
+  const [images, setImages] = useState<UploadResult[]>([]);
   const [uploading, setUploading] = useState(false);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -55,7 +55,7 @@ function PublishPage() {
     const results = await Promise.allSettled(selected.map(uploadImage));
     const uploaded = results
       .filter((result) => result.status === "fulfilled")
-      .map((result) => result.value.url);
+      .map((result) => result.value);
     if (uploaded.length) setImages((prev) => [...prev, ...uploaded]);
     const failed = results.find((result) => result.status === "rejected");
     setToast(
@@ -83,7 +83,11 @@ function PublishPage() {
           title: title.trim(),
           content: body.trim(),
           circleId: selectedCircleId,
-          images: images.map((url) => ({ url, ratio: "4/5" as const })),
+          images: images.map((image) => ({
+            ossId: image.ossId,
+            url: image.url,
+            ratio: "4/5" as const,
+          })),
           ratio: "4/5",
           tag: "经验",
         });
@@ -126,12 +130,12 @@ function PublishPage() {
 
           {/* Images */}
           <div className="grid grid-cols-4 gap-2">
-            {images.map((src, i) => (
+            {images.map((image, i) => (
               <div
-                key={src + i}
+                key={image.ossId}
                 className="relative aspect-square overflow-hidden rounded-[12px] border border-[color:var(--border)]"
               >
-                <img src={src} alt="" className="h-full w-full object-cover" />
+                <img src={image.url} alt="" className="h-full w-full object-cover" />
                 {i === 0 && (
                   <span className="absolute bottom-1 left-1 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
                     封面

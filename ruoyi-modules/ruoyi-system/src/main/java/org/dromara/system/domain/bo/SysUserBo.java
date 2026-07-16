@@ -3,6 +3,7 @@ package org.dromara.system.domain.bo;
 import io.github.linpeilie.annotations.AutoMapper;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -86,6 +87,30 @@ public class SysUserBo extends BaseEntity {
      * 备注
      */
     private String remark;
+
+    /** 用户个人简介 */
+    @Size(max = 300, message = "个人简介长度不能超过{max}个字符")
+    private String bio;
+
+    /** 用户年龄段 */
+    @Pattern(regexp = "^(unknown|under18|18-24|25-29|30-34|35-39|40-49|50plus)?$", message = "年龄段选项无效")
+    private String ageRange;
+
+    /** 用户省份编码 */
+    @Size(max = 20, message = "省份编码长度不能超过{max}个字符")
+    private String provinceCode;
+
+    /** 用户省份名称 */
+    @Size(max = 40, message = "省份名称长度不能超过{max}个字符")
+    private String provinceName;
+
+    /** 用户城市编码 */
+    @Size(max = 20, message = "城市编码长度不能超过{max}个字符")
+    private String cityCode;
+
+    /** 用户城市名称 */
+    @Size(max = 40, message = "城市名称长度不能超过{max}个字符")
+    private String cityName;
 
     /**
      * 角色组

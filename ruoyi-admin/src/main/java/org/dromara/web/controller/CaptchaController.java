@@ -31,7 +31,6 @@ import org.dromara.web.domain.vo.CaptchaVo;
 import org.springframework.expression.Expression;
 import org.springframework.expression.ExpressionParser;
 import org.springframework.expression.spel.standard.SpelExpressionParser;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -55,9 +54,6 @@ public class CaptchaController {
 
     private final CaptchaProperties captchaProperties;
     private final MailProperties mailProperties;
-
-    @Value("${dalanbook.auth.expose-dev-email-code:false}")
-    private boolean exposeDevEmailCode;
 
     /**
      * 短信验证码
@@ -100,8 +96,8 @@ public class CaptchaController {
             return R.fail("验证码用途不正确");
         }
         validateCaptcha(uuid, code);
-        String devCode = SpringUtils.getAopProxy(this).emailCodeImpl(email.trim().toLowerCase(), purpose);
-        return R.ok(devCode == null ? Map.of() : Map.of("devCode", devCode));
+        SpringUtils.getAopProxy(this).emailCodeImpl(email.trim().toLowerCase(), purpose);
+        return R.ok(Map.of());
     }
 
     /**
@@ -109,22 +105,20 @@ public class CaptchaController {
      * 独立方法避免验证码关闭之后仍然走限流
      */
     @RateLimiter(key = "#email", time = 60, count = 1)
-    public String emailCodeImpl(String email, String purpose) {
+    public void emailCodeImpl(String email, String purpose) {
+        if (StringUtils.isBlank(mailProperties.getPass())) {
+            throw new ServiceException("邮件服务未配置，请联系管理员");
+        }
         String key = GlobalConstants.CAPTCHA_CODE_KEY + "email:" + purpose + ":" + email;
         String code = RandomUtil.randomNumbers(6);
         RedisUtils.setCacheObject(key, code, Duration.ofMinutes(Constants.CAPTCHA_EXPIRATION));
-        if (exposeDevEmailCode && StringUtils.isBlank(mailProperties.getPass())) {
-            log.warn("开发环境未配置 SMTP 授权码，邮箱验证码仅回显给本地前端");
-            return code;
-        }
         try {
             String scene = StringUtils.equals(purpose, "register") ? "注册" : "找回密码";
             MailUtils.sendText(email, scene + "验证码", "您本次" + scene + "验证码为：" + code + "，有效期为" + Constants.CAPTCHA_EXPIRATION + "分钟，请尽快填写。");
         } catch (Exception e) {
-            log.error("验证码短信发送异常 => {}", e.getMessage());
-            throw new ServiceException(e.getMessage());
+            log.error("邮箱验证码发送异常", e);
+            throw new ServiceException("邮箱验证码发送失败，请稍后重试");
         }
-        return null;
     }
 
     private void validateCaptcha(String uuid, String code) {

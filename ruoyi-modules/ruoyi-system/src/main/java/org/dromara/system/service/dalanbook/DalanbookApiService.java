@@ -194,6 +194,7 @@ public class DalanbookApiService {
 
         SysUser user = userMapper.selectById(userId);
         user.setNickName(request.nickname().trim());
+        user.setSex(sexCode(request.gender()));
         userMapper.updateById(user);
         return toMyProfile(user, profile);
     }
@@ -401,6 +402,17 @@ public class DalanbookApiService {
         if (!RATIOS.contains(request.ratio()) || request.images().stream().anyMatch(image -> !RATIOS.contains(image.ratio()))) {
             throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_IMAGE_RATIO", "图片比例无效");
         }
+        List<StoredImage> storedImages = request.images().stream().map(image -> {
+            Long ossId = parseOssId(image.ossId());
+            SysOssVo oss = ossService.getById(ossId);
+            if (oss == null) {
+                throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "IMAGE_NOT_FOUND", "上传图片不存在");
+            }
+            if (oss.getCreateBy() != null && !Objects.equals(oss.getCreateBy(), userId)) {
+                throw new DalanApiException(HttpStatus.FORBIDDEN, "IMAGE_NOT_OWNED", "不能使用其他用户上传的图片");
+            }
+            return new StoredImage(String.valueOf(ossId), null, image.ratio());
+        }).toList();
         Instant now = Instant.now();
         DalanPostV1 post = new DalanPostV1();
         post.setId("p_" + compactId());
@@ -408,8 +420,8 @@ public class DalanbookApiService {
         post.setCircleId(circle.getId());
         post.setTitle(request.title().trim());
         post.setContent(request.content().trim());
-        post.setImages(JsonUtils.toJsonString(request.images()));
-        post.setCover(request.images().get(0).url());
+        post.setImages(JsonUtils.toJsonString(storedImages));
+        post.setCover("");
         post.setRatio(request.ratio());
         post.setTag(request.tag());
         post.setVisibility("circle".equals(request.visibility()) ? "circle" : "public");
@@ -629,8 +641,7 @@ public class DalanbookApiService {
     }
 
     public String uploadedUrl(Long ossId) {
-        SysOssVo oss = ossService.getById(ossId);
-        return oss == null ? null : oss.getUrl();
+        return ossService.getAccessUrl(ossId);
     }
 
     private FeedContext context(List<DalanPostV1> posts) {
@@ -654,7 +665,7 @@ public class DalanbookApiService {
         DalanCircleV1 circle = context.circles().get(post.getCircleId());
         SysUser user = context.users().get(post.getAuthorId());
         DalanPostStats stats = context.stats().get(post.getId());
-        return new FeedItem(post.getId(), new Cover(post.getCover(), post.getRatio(), null), post.getTag(), post.getTitle(),
+        return new FeedItem(post.getId(), new Cover(coverUrl(post), post.getRatio(), null), post.getTag(), post.getTitle(),
             new CircleBrief(post.getCircleId(), circle == null ? "" : circle.getName()), author(post.getAuthorId(), user),
             new Useful(stats == null ? 0 : nvl(stats.getUsefulCount()), context.useful().contains(post.getId())), post.getCreatedAt());
     }
@@ -663,7 +674,9 @@ public class DalanbookApiService {
         DalanCircleV1 circle = context.circles().get(post.getCircleId());
         DalanPostStats stats = context.stats().get(post.getId());
         boolean useful = context.useful().contains(post.getId());
-        return new PostDto(post.getId(), post.getTitle(), post.getContent(), images(post.getImages()), post.getCover(),
+        List<ImageDto> postImages = images(post.getImages());
+        String cover = postImages.isEmpty() ? post.getCover() : postImages.get(0).url();
+        return new PostDto(post.getId(), post.getTitle(), post.getContent(), postImages, cover,
             post.getRatio(), post.getTag(), postTopics(post.getId()), new CircleBrief(post.getCircleId(), circle == null ? "" : circle.getName()),
             author(post.getAuthorId(), context.users().get(post.getAuthorId())), stats == null ? 0 : nvl(stats.getUsefulCount()),
             stats == null ? 0 : nvl(stats.getLikeCount()), stats == null ? 0 : nvl(stats.getCommentCount()),
@@ -754,8 +767,7 @@ public class DalanbookApiService {
     private String avatarUrl(Long ossId) {
         if (ossId == null) return null;
         try {
-            SysOssVo oss = ossService.getById(ossId);
-            return oss == null ? null : oss.getUrl();
+            return ossService.getAccessUrl(ossId);
         } catch (RuntimeException ignored) {
             return null;
         }
@@ -874,7 +886,44 @@ public class DalanbookApiService {
 
     private List<ImageDto> images(String json) {
         if (json == null || json.isBlank()) return List.of();
-        return JsonUtils.parseArray(json, ImageDto.class);
+        return JsonUtils.parseArray(json, StoredImage.class).stream()
+            .map(image -> new ImageDto(image.ossId(), assetUrl(parseNullableOssId(image.ossId()), image.url()), image.ratio()))
+            .toList();
+    }
+
+    private String coverUrl(DalanPostV1 post) {
+        if (post.getImages() == null || post.getImages().isBlank()) return post.getCover();
+        List<StoredImage> storedImages = JsonUtils.parseArray(post.getImages(), StoredImage.class);
+        if (storedImages.isEmpty()) return post.getCover();
+        StoredImage first = storedImages.get(0);
+        return assetUrl(parseNullableOssId(first.ossId()), first.url() == null ? post.getCover() : first.url());
+    }
+
+    private String assetUrl(Long ossId, String legacyUrl) {
+        if (ossId == null) return legacyUrl;
+        try {
+            String url = ossService.getAccessUrl(ossId);
+            return url == null ? legacyUrl : url;
+        } catch (RuntimeException ignored) {
+            return legacyUrl;
+        }
+    }
+
+    private Long parseOssId(String value) {
+        try {
+            return Long.valueOf(value);
+        } catch (NumberFormatException exception) {
+            throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_OSS_ID", "图片标识无效");
+        }
+    }
+
+    private Long parseNullableOssId(String value) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            return Long.valueOf(value);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     private List<String> strings(String json) {
@@ -958,12 +1007,14 @@ public class DalanbookApiService {
         String[] colors = {"#245BDB", "#1F9D6A", "#0D1B33", "#D88B16", "#D94B4B", "#5E6B7F"};
         return colors[Math.floorMod(id == null ? 0 : id.hashCode(), colors.length)];
     }
-    private String sex(String value) { return "0".equals(value) ? "male" : "1".equals(value) ? "female" : "unknown"; }
+    private String sex(String value) { return "0".equals(value) ? "male" : "1".equals(value) ? "female" : "3".equals(value) ? "other" : "unknown"; }
+    private String sexCode(String value) { return "male".equals(value) ? "0" : "female".equals(value) ? "1" : "other".equals(value) ? "3" : "2"; }
     private String membersText(long count) {
         return count >= 10000 ? String.format(Locale.ROOT, "%.1f 万人正在讨论", count / 10000.0) : count + " 人正在讨论";
     }
 
     private record CursorValue(Instant createdAt, String id) {}
+    private record StoredImage(String ossId, String url, String ratio) {}
     private record FeedContext(Map<String, DalanCircleV1> circles, Map<Long, SysUser> users,
                                Map<String, DalanPostStats> stats, Set<String> useful,
                                Set<String> liked, Set<String> favorited) {}
