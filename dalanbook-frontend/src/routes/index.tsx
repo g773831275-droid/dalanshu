@@ -8,10 +8,8 @@ import { MasonryFeed } from "@/components/home/MasonryFeed";
 import { MobileTopBar } from "@/components/home/MobileTopBar";
 import { MobileBottomNav } from "@/components/home/MobileBottomNav";
 import { authStore, useAuthUser } from "@/lib/authStore";
-import {
-  getHomeCategories,
-  type HomeChannel,
-} from "@/lib/homeApi";
+import { getHomeCategories } from "@/lib/homeApi";
+import type { HomeChannel } from "@/lib/homeUi";
 
 export const Route = createFileRoute("/")({
   component: Home,
@@ -69,7 +67,7 @@ function Home() {
       <div className="mx-auto max-w-[1360px] px-3 pt-3 pb-28 md:flex md:gap-8 md:px-6 md:pt-2 md:pb-16">
         <LeftNav activeChannel={channel} onChannelChange={handleChannelChange} />
         <main className="min-w-0 flex-1">
-          <MasonryFeed channel={channel} categoryId={categoryId} />
+          <MasonryFeed categoryId={categoryId} />
         </main>
       </div>
 

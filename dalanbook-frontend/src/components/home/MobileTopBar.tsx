@@ -1,6 +1,6 @@
 import { Search } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
-import type { HomeChannel } from "@/lib/homeApi";
+import type { HomeChannel } from "@/lib/homeUi";
 
 const channels: { id: HomeChannel; label: string }[] = [
   { id: "recommend", label: "推荐" },

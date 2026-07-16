@@ -4,7 +4,6 @@ import { useAuthUser } from "@/lib/authStore";
 import {
   getHomeCircleRecommendation,
   getHomeFeed,
-  type HomeChannel,
   type HomeFeedItem,
 } from "@/lib/homeApi";
 import type { Post } from "@/data/mockPosts";
@@ -28,13 +27,7 @@ function toPost(item: HomeFeedItem): Post {
   };
 }
 
-export function MasonryFeed({
-  channel,
-  categoryId,
-}: {
-  channel: HomeChannel;
-  categoryId: string;
-}) {
+export function MasonryFeed({ categoryId }: { categoryId: string }) {
   const user = useAuthUser();
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const {
@@ -47,10 +40,9 @@ export function MasonryFeed({
     fetchNextPage,
     refetch,
   } = useInfiniteQuery({
-    queryKey: ["home", "feed", channel, categoryId, user?.id ?? "anonymous"],
+    queryKey: ["home", "feed", categoryId, user?.id ?? "anonymous"],
     queryFn: ({ pageParam }) =>
       getHomeFeed({
-        channel,
         categoryId,
         cursor: pageParam,
         limit: 20,

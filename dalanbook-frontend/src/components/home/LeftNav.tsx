@@ -2,7 +2,8 @@ import { Compass, Users, Clock, Plus } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useAuthUser } from "@/lib/authStore";
-import { getHomeLeftNav, type HomeChannel } from "@/lib/homeApi";
+import { getHomeLeftNav } from "@/lib/homeApi";
+import type { HomeChannel } from "@/lib/homeUi";
 
 const primaryItems = [
   { id: "recommend", icon: Compass, label: "推荐" },

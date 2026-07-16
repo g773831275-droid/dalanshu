@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { Users, MessageSquare, Check } from "lucide-react";
 import type { Circle } from "@/data/mockCircles";
 import { authStore, useAuthUser } from "@/lib/authStore";
@@ -9,6 +10,11 @@ export function CircleCard({ circle, compact = false }: { circle: Circle; compac
   const [joined, setJoined] = useState(!!circle.joined);
   const [saving, setSaving] = useState(false);
   const user = useAuthUser();
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    setJoined(!!circle.joined);
+  }, [circle.joined]);
 
   async function toggleJoined() {
     if (!user) {
@@ -22,6 +28,7 @@ export function CircleCard({ circle, compact = false }: { circle: Circle; compac
     try {
       const updated = await setCircleMembership(circle.id, next);
       setJoined(!!updated.joined);
+      await queryClient.invalidateQueries({ queryKey: ["dalanbook", "circles"] });
     } catch {
       setJoined(!next);
     } finally {

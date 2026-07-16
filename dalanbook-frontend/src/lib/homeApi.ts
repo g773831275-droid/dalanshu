@@ -1,6 +1,12 @@
 import { authRequest } from "@/lib/authApi";
+import { useMockApi } from "@/lib/apiMode";
+import {
+  getMockHomeCategories,
+  getMockHomeCircleRecommendation,
+  getMockHomeFeed,
+  getMockHomeLeftNav,
+} from "@/lib/homeApi.mock";
 
-export type HomeChannel = "recommend" | "following" | "latest";
 export type HomeCategoryType = "system" | "topic";
 export type HomeCoverRatio = "1/1" | "4/5" | "3/4" | "4/3" | "16/9";
 export type HomePostTag = "经验" | "提问" | "测评" | "复盘" | "大神分享" | "清单";
@@ -55,7 +61,16 @@ export type HomeMyCircle = {
   unread: number;
 };
 
+export type HomeShortcut = {
+  id: string;
+  label: string;
+  icon: string;
+  href: string;
+  badge: number | null;
+};
+
 export type HomeLeftNavResponse = {
+  shortcuts: HomeShortcut[];
   myCircles: HomeMyCircle[];
 };
 
@@ -74,24 +89,25 @@ export type HomeCircleRecommendResponse = {
 };
 
 export type GetHomeFeedInput = {
-  channel: HomeChannel;
   categoryId: string;
   cursor?: string | null;
   limit?: number;
 };
 
 export function getHomeCategories(): Promise<HomeCategoriesResponse> {
+  if (useMockApi) return getMockHomeCategories();
   return authRequest<HomeCategoriesResponse>("/api/v1/home/categories");
 }
 
 export function getHomeFeed({
-  channel,
   categoryId,
   cursor,
   limit = 20,
 }: GetHomeFeedInput): Promise<HomeFeedResponse> {
+  if (useMockApi) {
+    return getMockHomeFeed({ categoryId, cursor, limit });
+  }
   const params = new URLSearchParams({
-    channel,
     categoryId,
     limit: String(limit),
   });
@@ -100,12 +116,14 @@ export function getHomeFeed({
 }
 
 export function getHomeLeftNav(): Promise<HomeLeftNavResponse> {
+  if (useMockApi) return getMockHomeLeftNav();
   return authRequest<HomeLeftNavResponse>("/api/v1/home/left-nav");
 }
 
 export function getHomeCircleRecommendation(
   categoryId: string,
 ): Promise<HomeCircleRecommendResponse> {
+  if (useMockApi) return getMockHomeCircleRecommendation(categoryId);
   const params = new URLSearchParams({ categoryId });
   return authRequest<HomeCircleRecommendResponse>(
     `/api/v1/home/circle-recommend?${params.toString()}`,

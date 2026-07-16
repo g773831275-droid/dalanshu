@@ -3,7 +3,6 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
-  ThumbsUp,
   Bookmark,
   MessageSquare,
   Share2,
@@ -25,17 +24,15 @@ import {
   getPost,
   getPostComments,
   setPostReaction,
-  setPostUseful,
   type ApiComment,
   type Topic,
 } from "@/lib/dalanbookApi";
 
-type DetailPost = Post & {
+type DetailPost = Omit<Post, "useful" | "usefulLiked"> & {
   content: string;
   images: string[];
   topics: Topic[];
   createdAt: string;
-  isUseful: boolean;
   isLiked: boolean;
   isFavorited: boolean;
   likeCount: number;
@@ -56,13 +53,12 @@ export const Route = createFileRoute("/posts/$id")({
       circle: api.circle.name,
       title: api.title,
       author: api.author.name,
+      avatarUrl: api.author.avatarUrl,
       avatarColor: api.author.avatarColor,
-      useful: api.usefulCount,
       content: api.content,
       images: api.images.map((image) => image.url),
       topics: api.topics,
       createdAt: api.createdAt,
-      isUseful: api.isUseful,
       isLiked: api.isLiked,
       isFavorited: api.isFavorited,
       likeCount: api.likeCount,
@@ -131,7 +127,6 @@ function PostDetail() {
   const circleMeta = useMemo(() => circles.find((c) => c.name === post.circle), [post]);
 
   const [activeImg, setActiveImg] = useState(0);
-  const [useful, setUseful] = useState(post.isUseful);
   const [liked, setLiked] = useState(post.isLiked);
   const [saved, setSaved] = useState(post.isFavorited);
   const [following, setFollowing] = useState(false);
@@ -142,24 +137,12 @@ function PostDetail() {
   const [commentError, setCommentError] = useState("");
   const { require, gateProps } = useLoginGate();
   const { data: comments, isLoading: commentsLoading, refetch: refetchComments } = useQuery({
-    queryKey: ["post-comments", post.id],
-    queryFn: () => getPostComments(post.id),
+    queryKey: ["dalanbook", "post", post.id, "comments"],
+    queryFn: () => getPostComments(post.id, { limit: 50 }),
   });
-  const usefulCount = post.useful + (useful === post.isUseful ? 0 : useful ? 1 : -1);
   const likeCount = post.likeCount + (liked === post.isLiked ? 0 : liked ? 1 : -1);
   const savedCount = post.favoriteCount + (saved === post.isFavorited ? 0 : saved ? 1 : -1);
 
-  const toggleUseful = () =>
-    require("给帖子点赞", async () => {
-      const next = !useful;
-      setUseful(next);
-      try {
-        const result = await setPostUseful(post.id, next);
-        setUseful(result.liked);
-      } catch {
-        setUseful(!next);
-      }
-    });
   const toggleLike = () =>
     require("给帖子点赞", async () => {
       const next = !liked;
@@ -405,7 +388,7 @@ function PostDetail() {
 
             {/* Stats bar */}
             <div className="mt-6 flex items-center gap-4 border-t border-[color:var(--border)] pt-4 text-[12.5px] text-text-tertiary">
-              <span>{usefulCount} 觉得有用</span>
+              <span>{likeCount} 点赞</span>
               <span>·</span>
               <span>{savedCount} 收藏</span>
               <span>·</span>
@@ -414,18 +397,6 @@ function PostDetail() {
 
             {/* Desktop action row */}
             <div className="mt-4 hidden items-center gap-2 md:flex">
-              <button
-                onClick={toggleUseful}
-                className={
-                  "flex h-10 items-center gap-1.5 rounded-[12px] px-4 text-[13.5px] font-medium transition-colors " +
-                  (useful
-                    ? "bg-foreground text-white"
-                    : "border border-[color:var(--border-default)] bg-white/60 text-text-secondary hover:text-foreground")
-                }
-              >
-                <ThumbsUp className="h-4 w-4" strokeWidth={1.75} />
-                有用 {usefulCount}
-              </button>
               <button
                 onClick={toggleSave}
                 className={
@@ -657,10 +628,7 @@ function PostDetail() {
                             <span className="line-clamp-2 text-[12.5px] leading-snug text-foreground group-hover:underline">
                               {r.title}
                             </span>
-                            <span className="inline-flex items-center gap-1 text-[11px] text-text-tertiary">
-                              <ThumbsUp className="h-3 w-3" strokeWidth={1.75} />
-                              {r.useful}
-                            </span>
+                            <span className="text-[11px] text-text-tertiary">{r.author}</span>
                           </span>
                         </Link>
                       </li>
@@ -692,16 +660,6 @@ function PostDetail() {
             }}
           />
         </div>
-        <button
-          onClick={toggleUseful}
-          className={
-            "flex h-10 w-10 items-center justify-center rounded-full transition-colors " +
-            (useful ? "bg-foreground text-white" : "text-text-secondary")
-          }
-          aria-label="有用"
-        >
-          <ThumbsUp className="h-5 w-5" strokeWidth={1.75} />
-        </button>
         <button
           onClick={toggleSave}
           className={

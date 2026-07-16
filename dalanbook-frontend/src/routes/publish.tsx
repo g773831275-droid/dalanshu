@@ -1,12 +1,12 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Plus, X, Hash, Users, MapPin, Globe2, Lock, ChevronRight, Check } from "lucide-react";
+import { Plus, X, Users, Check } from "lucide-react";
 import { TopNav } from "@/components/home/TopNav";
 import { MobileTopBar } from "@/components/home/MobileTopBar";
 import { LoginGateModal, useLoginGate } from "@/components/auth/LoginGate";
 import { useAuthUser } from "@/lib/authStore";
-import { getCircles, getTopics, publishPost, uploadImage } from "@/lib/dalanbookApi";
+import { getCircles, publishPost, uploadImage } from "@/lib/dalanbookApi";
 
 export const Route = createFileRoute("/publish")({
   head: () => ({
@@ -14,8 +14,6 @@ export const Route = createFileRoute("/publish")({
   }),
   component: PublishPage,
 });
-
-const defaultTopicSuggestions = ["效率", "AI 工具", "复盘", "读书", "自律", "职场", "减脂"];
 
 function PublishPage() {
   const navigate = useNavigate();
@@ -26,22 +24,12 @@ function PublishPage() {
     queryKey: ["dalanbook", "circles"],
     queryFn: () => getCircles(),
   });
-  const { data: apiTopics = [] } = useQuery({
-    queryKey: ["dalanbook", "topics"],
-    queryFn: getTopics,
-  });
-  const topicSuggestions = apiTopics.length
-    ? apiTopics.map((topic) => topic.name).slice(0, 12)
-    : defaultTopicSuggestions;
   const joinedCircles = circles.filter((circle) => circle.joined);
   const [images, setImages] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [topics, setTopics] = useState<string[]>(["复盘"]);
   const [circleId, setCircleId] = useState<string>("");
-  const [location, setLocation] = useState("上海 · 徐汇");
-  const [pub, setPub] = useState<"public" | "circle">("public");
   const [toast, setToast] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
 
@@ -49,27 +37,36 @@ function PublishPage() {
   const bodyMax = 1000;
   const selectedCircleId = circleId || joinedCircles[0]?.id || "";
   const canPublish =
-    title.trim().length > 0 && body.trim().length > 0 && images.length > 0 && !!selectedCircleId;
-
-  function toggleTopic(t: string) {
-    setTopics((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
-  }
+    !uploading &&
+    title.trim().length > 0 &&
+    body.trim().length > 0 &&
+    images.length > 0 &&
+    !!selectedCircleId;
 
   async function addImages(files: FileList | null) {
     if (!files?.length) return;
+    if (!require("上传图片", () => {})) {
+      if (fileInput.current) fileInput.current.value = "";
+      return;
+    }
     const selected = Array.from(files).slice(0, 9 - images.length);
     setUploading(true);
     setToast("正在上传图片…");
-    try {
-      const uploaded = await Promise.all(selected.map(uploadImage));
-      setImages((prev) => [...prev, ...uploaded.map((item) => item.url)]);
-      setToast(null);
-    } catch (error) {
-      setToast(error instanceof Error ? error.message : "图片上传失败");
-    } finally {
-      setUploading(false);
-      if (fileInput.current) fileInput.current.value = "";
-    }
+    const results = await Promise.allSettled(selected.map(uploadImage));
+    const uploaded = results
+      .filter((result) => result.status === "fulfilled")
+      .map((result) => result.value.url);
+    if (uploaded.length) setImages((prev) => [...prev, ...uploaded]);
+    const failed = results.find((result) => result.status === "rejected");
+    setToast(
+      failed
+        ? failed.reason instanceof Error
+          ? failed.reason.message
+          : "部分图片上传失败"
+        : null,
+    );
+    setUploading(false);
+    if (fileInput.current) fileInput.current.value = "";
   }
 
   function removeImage(idx: number) {
@@ -88,9 +85,7 @@ function PublishPage() {
           circleId: selectedCircleId,
           images: images.map((url) => ({ url, ratio: "4/5" as const })),
           ratio: "4/5",
-          tag: topics.includes("复盘") ? "复盘" : "经验",
-          topics,
-          visibility: pub,
+          tag: "经验",
         });
         setToast("发布成功，正在打开笔记…");
         window.setTimeout(() => navigate({ to: "/posts/$id", params: { id: post.id } }), 500);
@@ -126,9 +121,7 @@ function PublishPage() {
             <h1 className="text-[16px] font-semibold tracking-[-0.01em] text-foreground">
               发布笔记
             </h1>
-            <button className="text-[13.5px] text-text-secondary hover:text-foreground">
-              存草稿
-            </button>
+            <span className="w-[52px]" aria-hidden />
           </div>
 
           {/* Images */}
@@ -202,33 +195,6 @@ function PublishPage() {
             </div>
           </div>
 
-          {/* Topics */}
-          <div className="mt-4 rounded-[14px] border border-[color:var(--border)] bg-white/50 p-3">
-            <div className="mb-2 flex items-center gap-2 text-[13px] text-text-secondary">
-              <Hash className="h-4 w-4" strokeWidth={1.75} />
-              话题
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {topicSuggestions.map((t) => {
-                const on = topics.includes(t);
-                return (
-                  <button
-                    key={t}
-                    onClick={() => toggleTopic(t)}
-                    className={
-                      "rounded-full border px-2.5 py-1 text-[12px] transition-colors " +
-                      (on
-                        ? "border-foreground bg-foreground text-white"
-                        : "border-[color:var(--border)] bg-white text-text-secondary hover:text-foreground")
-                    }
-                  >
-                    #{t}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
           {/* Circle picker */}
           <div className="mt-3 rounded-[14px] border border-[color:var(--border)] bg-white/50 p-3">
             <div className="mb-2 flex items-center gap-2 text-[13px] text-text-secondary">
@@ -261,52 +227,8 @@ function PublishPage() {
             </div>
           </div>
 
-          {/* Location */}
-          <button
-            onClick={() => setLocation((l) => (l ? "" : "上海 · 徐汇"))}
-            className="mt-3 flex w-full items-center justify-between rounded-[14px] border border-[color:var(--border)] bg-white/50 px-3 py-3 text-[13px] text-text-secondary transition-colors hover:text-foreground"
-          >
-            <span className="inline-flex items-center gap-2">
-              <MapPin className="h-4 w-4" strokeWidth={1.75} />
-              地点
-            </span>
-            <span className="inline-flex items-center gap-1 text-text-tertiary">
-              {location || "添加地点"}
-              <ChevronRight className="h-4 w-4" strokeWidth={1.75} />
-            </span>
-          </button>
-
-          {/* Visibility */}
-          <div className="mt-3 flex overflow-hidden rounded-[14px] border border-[color:var(--border)] bg-white/50 p-1 text-[13px]">
-            {(
-              [
-                { key: "public", label: "公开可见", icon: Globe2 },
-                { key: "circle", label: "仅圈内可见", icon: Lock },
-              ] as const
-            ).map((o) => {
-              const on = pub === o.key;
-              const Icon = o.icon;
-              return (
-                <button
-                  key={o.key}
-                  onClick={() => setPub(o.key)}
-                  className={
-                    "flex flex-1 items-center justify-center gap-1.5 rounded-[10px] py-2 transition-colors " +
-                    (on ? "bg-foreground text-white" : "text-text-secondary hover:text-foreground")
-                  }
-                >
-                  <Icon className="h-4 w-4" strokeWidth={1.75} />
-                  {o.label}
-                </button>
-              );
-            })}
-          </div>
-
           {/* Desktop actions */}
           <div className="mt-6 hidden items-center justify-end gap-2 md:flex">
-            <button className="h-10 rounded-[12px] border border-[color:var(--border-default)] bg-white/60 px-4 text-[13.5px] text-text-secondary transition-colors hover:text-foreground">
-              预览
-            </button>
             <button
               disabled={!canPublish || publishing}
               onClick={onPublish}
@@ -325,14 +247,11 @@ function PublishPage() {
 
       {/* Mobile fixed bar */}
       <div className="glass-base fixed inset-x-0 bottom-0 z-40 flex items-center gap-2 border-t border-[color:var(--border)] px-3 py-2.5 md:hidden">
-        <button className="h-10 flex-1 rounded-[12px] border border-[color:var(--border-default)] bg-white/60 text-[13.5px] text-text-secondary">
-          预览
-        </button>
         <button
           disabled={!canPublish || publishing}
           onClick={onPublish}
           className={
-            "h-10 flex-[2] rounded-[12px] text-[14px] font-medium transition-colors " +
+            "h-10 w-full rounded-[12px] text-[14px] font-medium transition-colors " +
             (canPublish
               ? "bg-foreground text-white"
               : "cursor-not-allowed bg-[color:var(--action-muted)] text-text-tertiary")
