@@ -1,4 +1,4 @@
-import { Bell, LogOut, Search } from "lucide-react";
+import { LogOut, Search } from "lucide-react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { Logo } from "@/components/brand/Logo";
@@ -56,12 +56,6 @@ export function TopNav() {
         </div>
 
         <div className="ml-auto flex items-center gap-1">
-          <button
-            className="flex h-9 w-9 items-center justify-center rounded-[10px] text-text-secondary transition-colors hover:bg-black/[0.04] hover:text-foreground"
-            aria-label="消息"
-          >
-            <Bell className="h-[17px] w-[17px]" strokeWidth={1.75} />
-          </button>
           {user ? (
             <>
               <Link

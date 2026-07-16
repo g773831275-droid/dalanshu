@@ -1,9 +1,22 @@
-import { Bell, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
+import type { HomeChannel } from "@/lib/homeApi";
 
-const channels = ["推荐", "关注", "精华", "最新"];
+const channels: { id: HomeChannel; label: string }[] = [
+  { id: "recommend", label: "推荐" },
+  { id: "following", label: "关注" },
+  { id: "latest", label: "最新" },
+];
 
-export function MobileTopBar({ showChannels = true }: { showChannels?: boolean }) {
+export function MobileTopBar({
+  showChannels = false,
+  activeChannel = "recommend",
+  onChannelChange,
+}: {
+  showChannels?: boolean;
+  activeChannel?: HomeChannel;
+  onChannelChange?: (channel: HomeChannel) => void;
+}) {
   return (
     <header className="sticky top-0 z-40 md:hidden">
       <div className="glass-base mx-3 mt-2 flex h-12 items-center justify-between rounded-[18px] px-3">
@@ -15,28 +28,24 @@ export function MobileTopBar({ showChannels = true }: { showChannels?: boolean }
           >
             <Search className="h-[17px] w-[17px]" strokeWidth={1.75} />
           </button>
-          <button
-            className="flex h-9 w-9 items-center justify-center rounded-[10px] text-text-secondary"
-            aria-label="消息"
-          >
-            <Bell className="h-[17px] w-[17px]" strokeWidth={1.75} />
-          </button>
         </div>
       </div>
 
       {showChannels && (
         <div className="no-scrollbar mt-2 flex items-center gap-1.5 overflow-x-auto px-3 pb-1">
-          {channels.map((c, i) => (
+          {channels.map((channel) => (
             <button
-              key={c}
+              key={channel.id}
+              type="button"
+              onClick={() => onChannelChange?.(channel.id)}
               className={
                 "shrink-0 rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors " +
-                (i === 0
+                (channel.id === activeChannel
                   ? "bg-foreground text-white"
                   : "border border-[color:var(--border)] bg-white/60 text-text-secondary")
               }
             >
-              {c}
+              {channel.label}
             </button>
           ))}
         </div>

@@ -21,8 +21,10 @@ export type Post = {
   circle: string;
   title: string;
   author: string;
+  avatarUrl?: string;
   avatarColor: string;
   useful: number;
+  usefulLiked?: boolean;
 };
 
 // Simple deterministic avatar color palette (semantic tokens not required for tiny circles)
@@ -224,9 +226,3 @@ export const posts: Post[] = [
     useful: 219,
   },
 ];
-
-export const circleRec = {
-  name: "AI 工具圈",
-  members: "12.8 万人正在讨论",
-  desc: "分享 AI 工具、自动化流程与真实效率经验",
-};

@@ -114,8 +114,10 @@ function toPost(item: FeedItem): Post {
     circle: item.circle.name,
     title: item.title,
     author: item.author.name,
+    avatarUrl: item.author.avatarUrl,
     avatarColor: item.author.avatarColor,
     useful: item.useful.count,
+    usefulLiked: item.useful.liked,
   };
 }
 
@@ -131,13 +133,6 @@ export function toCircle(circle: ApiCircle): Circle {
     joined: circle.isJoined,
     tags: circle.tags,
   };
-}
-
-export async function getFeed(categoryId = "recommend"): Promise<Post[]> {
-  const data = await authRequest<FeedResponse>(
-    `/api/v1/home/feed?categoryId=${encodeURIComponent(categoryId)}&limit=40`,
-  );
-  return data.items.map(toPost);
 }
 
 export async function getPost(id: string): Promise<ApiPost> {

@@ -1,10 +1,13 @@
 import { Users } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 
 export function CircleRecCard({
+  id,
   name,
   desc,
   members,
 }: {
+  id: string;
   name: string;
   desc: string;
   members: string;
@@ -25,9 +28,13 @@ export function CircleRecCard({
       <p className="mb-3 line-clamp-3 text-[12.5px] leading-relaxed text-text-secondary">
         {desc}
       </p>
-      <button className="w-full rounded-[10px] bg-foreground py-2 text-[13px] font-medium text-white transition-colors hover:bg-[color:var(--action-primary-hover)]">
+      <Link
+        to="/circles/$id"
+        params={{ id }}
+        className="block w-full rounded-[10px] bg-foreground py-2 text-center text-[13px] font-medium text-white transition-colors hover:bg-[color:var(--action-primary-hover)]"
+      >
         进入圈子
-      </button>
+      </Link>
     </div>
   );
 }
