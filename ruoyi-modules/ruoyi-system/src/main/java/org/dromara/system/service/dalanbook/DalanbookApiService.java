@@ -2,6 +2,7 @@ package org.dromara.system.service.dalanbook;
 
 import cn.hutool.crypto.digest.DigestUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import org.dromara.common.json.utils.JsonUtils;
 import org.dromara.common.satoken.utils.LoginHelper;
@@ -53,6 +54,7 @@ public class DalanbookApiService {
     private final DalanPostV1Mapper postMapper;
     private final DalanPostStatsMapper statsMapper;
     private final DalanPostReactionMapper reactionMapper;
+    private final DalanCommentMapper commentMapper;
     private final DalanTopicMapper topicMapper;
     private final DalanPostTopicMapper postTopicMapper;
     private final DalanUserProfileMapper profileMapper;
@@ -435,34 +437,140 @@ public class DalanbookApiService {
 
     @Transactional(rollbackFor = Exception.class)
     public UsefulResponse useful(String postId, boolean liked) {
+        ReactionResponse reaction = reaction(postId, "useful", liked);
+        return new UsefulResponse(reaction.count(), reaction.active());
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public ReactionResponse reaction(String postId, String type, boolean active) {
+        if (!Set.of("useful", "like", "favorite").contains(type)) {
+            throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_REACTION_TYPE", "互动类型无效");
+        }
         Long userId = requireUserId();
         findPost(postId);
         LambdaQueryWrapper<DalanPostReaction> key = new LambdaQueryWrapper<DalanPostReaction>()
             .eq(DalanPostReaction::getPostId, postId).eq(DalanPostReaction::getUserId, userId)
-            .eq(DalanPostReaction::getType, "useful");
+            .eq(DalanPostReaction::getType, type);
         boolean exists = reactionMapper.selectCount(key) > 0;
-        if (liked && !exists) {
+        if (active && !exists) {
             DalanPostReaction reaction = new DalanPostReaction();
             reaction.setPostId(postId);
             reaction.setUserId(userId);
-            reaction.setType("useful");
+            reaction.setType(type);
             reaction.setCreatedAt(Instant.now());
             try {
                 reactionMapper.insert(reaction);
-                statsMapper.changeUseful(postId, 1);
+                changeReactionCount(postId, type, 1);
             } catch (DuplicateKeyException ignored) {
                 // A retry raced with the first request; the desired state is already present.
             }
-        } else if (!liked && exists) {
+        } else if (!active && exists) {
             if (reactionMapper.delete(key) > 0) {
-                statsMapper.changeUseful(postId, -1);
+                changeReactionCount(postId, type, -1);
             }
         }
         DalanPostStats stats = statsMapper.selectById(postId);
         boolean actual = reactionMapper.selectCount(new LambdaQueryWrapper<DalanPostReaction>()
             .eq(DalanPostReaction::getPostId, postId).eq(DalanPostReaction::getUserId, userId)
-            .eq(DalanPostReaction::getType, "useful")) > 0;
-        return new UsefulResponse(stats == null ? 0 : nvl(stats.getUsefulCount()), actual);
+            .eq(DalanPostReaction::getType, type)) > 0;
+        return new ReactionResponse(type, reactionCount(stats, type), actual);
+    }
+
+    public CommentPage comments(String postId, String cursor, int requestedLimit) {
+        findPost(postId);
+        int limit = normalizeLimit(requestedLimit, 50);
+        CursorValue cursorValue = decodeCursor(cursor);
+        LambdaQueryWrapper<DalanComment> query = new LambdaQueryWrapper<DalanComment>()
+            .eq(DalanComment::getPostId, postId)
+            .isNull(DalanComment::getParentId)
+            .in(DalanComment::getStatus, List.of("published", "deleted"))
+            .and(cursorValue != null, wrapper -> wrapper
+                .lt(DalanComment::getCreatedAt, cursorValue == null ? null : cursorValue.createdAt())
+                .or()
+                .eq(DalanComment::getCreatedAt, cursorValue == null ? null : cursorValue.createdAt())
+                .lt(DalanComment::getId, cursorValue == null ? null : cursorValue.id()))
+            .orderByDesc(DalanComment::getCreatedAt)
+            .orderByDesc(DalanComment::getId)
+            .last("LIMIT " + (limit + 1));
+        List<DalanComment> rows = commentMapper.selectList(query);
+        boolean hasMore = rows.size() > limit;
+        List<DalanComment> page = hasMore ? rows.subList(0, limit) : rows;
+        List<String> parentIds = page.stream().map(DalanComment::getId).toList();
+        List<DalanComment> replyRows = parentIds.isEmpty() ? List.of() : commentMapper.selectList(
+            new LambdaQueryWrapper<DalanComment>()
+                .eq(DalanComment::getPostId, postId)
+                .in(DalanComment::getParentId, parentIds)
+                .in(DalanComment::getStatus, List.of("published", "deleted"))
+                .orderByAsc(DalanComment::getCreatedAt)
+                .orderByAsc(DalanComment::getId));
+        Map<String, List<DalanComment>> replies = replyRows.stream()
+            .collect(Collectors.groupingBy(DalanComment::getParentId));
+        Map<Long, SysUser> users = commentUsers(page, replyRows);
+        List<CommentDto> items = page.stream().map(comment -> toComment(comment, users,
+            replies.getOrDefault(comment.getId(), List.of()).stream()
+                .map(reply -> toComment(reply, users, List.of())).toList())).toList();
+        String next = hasMore && !page.isEmpty()
+            ? encodeCursor(page.get(page.size() - 1).getCreatedAt(), page.get(page.size() - 1).getId())
+            : null;
+        return new CommentPage(items, next, hasMore);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public CommentDto createComment(String postId, CreateCommentRequest request) {
+        Long userId = requireUserId();
+        DalanPostV1 post = findPost(postId);
+        String parentId = clean(request.parentId());
+        DalanComment parent = null;
+        if (!parentId.isEmpty()) {
+            parent = commentMapper.selectById(parentId);
+            if (parent == null || !postId.equals(parent.getPostId()) || !"published".equals(parent.getStatus())) {
+                throw new DalanApiException(HttpStatus.NOT_FOUND, "COMMENT_NOT_FOUND", "要回复的评论不存在");
+            }
+            if (parent.getParentId() != null) {
+                throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "REPLY_DEPTH_EXCEEDED", "评论最多支持两级回复");
+            }
+        }
+        Instant now = Instant.now();
+        DalanComment comment = new DalanComment();
+        comment.setId("cm_" + compactId());
+        comment.setPostId(postId);
+        comment.setParentId(parent == null ? null : parent.getId());
+        comment.setAuthorId(userId);
+        comment.setContent(request.content().trim());
+        comment.setStatus("published");
+        comment.setCreatedAt(now);
+        comment.setUpdatedAt(now);
+        commentMapper.insert(comment);
+        statsMapper.changeComment(postId, 1);
+        Long recipientId = parent == null ? post.getAuthorId() : parent.getAuthorId();
+        if (!Objects.equals(recipientId, userId)) {
+            createNotification(recipientId, parent == null ? "post_comment" : "comment_reply",
+                Map.of("postId", postId, "commentId", comment.getId()));
+        }
+        return toComment(comment, commentUsers(List.of(comment), List.of()), List.of());
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteComment(String commentId) {
+        Long userId = requireUserId();
+        DalanComment comment = commentMapper.selectById(commentId);
+        if (comment == null) {
+            throw new DalanApiException(HttpStatus.NOT_FOUND, "COMMENT_NOT_FOUND", "评论不存在");
+        }
+        if (!Objects.equals(comment.getAuthorId(), userId)) {
+            throw new DalanApiException(HttpStatus.FORBIDDEN, "COMMENT_DELETE_FORBIDDEN", "只能删除自己的评论");
+        }
+        if ("published".equals(comment.getStatus())) {
+            int updated = commentMapper.update(null, new LambdaUpdateWrapper<DalanComment>()
+                .eq(DalanComment::getId, commentId)
+                .eq(DalanComment::getStatus, "published")
+                .set(DalanComment::getStatus, "deleted")
+                .set(DalanComment::getContent, "")
+                .set(DalanComment::getUpdatedAt, Instant.now()));
+            if (updated > 0) {
+                statsMapper.changeComment(comment.getPostId(), -1);
+            }
+        }
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -777,6 +885,52 @@ public class DalanbookApiService {
     private Set<String> reactionIds(List<DalanPostReaction> reactions, String type) {
         return reactions.stream().filter(reaction -> type.equals(reaction.getType()))
             .map(DalanPostReaction::getPostId).collect(Collectors.toSet());
+    }
+
+    private void changeReactionCount(String postId, String type, int delta) {
+        switch (type) {
+            case "useful" -> statsMapper.changeUseful(postId, delta);
+            case "like" -> statsMapper.changeLike(postId, delta);
+            case "favorite" -> statsMapper.changeFavorite(postId, delta);
+            default -> throw new IllegalArgumentException("Unsupported reaction type: " + type);
+        }
+    }
+
+    private long reactionCount(DalanPostStats stats, String type) {
+        if (stats == null) return 0;
+        return switch (type) {
+            case "useful" -> nvl(stats.getUsefulCount());
+            case "like" -> nvl(stats.getLikeCount());
+            case "favorite" -> nvl(stats.getFavoriteCount());
+            default -> 0;
+        };
+    }
+
+    private Map<Long, SysUser> commentUsers(List<DalanComment> comments, List<DalanComment> replies) {
+        Set<Long> userIds = new HashSet<>();
+        comments.forEach(comment -> userIds.add(comment.getAuthorId()));
+        replies.forEach(comment -> userIds.add(comment.getAuthorId()));
+        if (userIds.isEmpty()) return Map.of();
+        return userMapper.selectBatchIds(userIds).stream()
+            .collect(Collectors.toMap(SysUser::getUserId, Function.identity()));
+    }
+
+    private CommentDto toComment(DalanComment comment, Map<Long, SysUser> users, List<CommentDto> replies) {
+        Long currentUserId = currentUserId().orElse(null);
+        boolean deleted = "deleted".equals(comment.getStatus());
+        return new CommentDto(comment.getId(), comment.getParentId(), author(comment.getAuthorId(), users.get(comment.getAuthorId())),
+            deleted ? "" : comment.getContent(), deleted, Objects.equals(comment.getAuthorId(), currentUserId),
+            comment.getCreatedAt(), replies);
+    }
+
+    private void createNotification(Long userId, String type, Map<String, Object> payload) {
+        DalanNotification notification = new DalanNotification();
+        notification.setId("n_" + compactId());
+        notification.setUserId(userId);
+        notification.setType(type);
+        notification.setPayload(JsonUtils.toJsonString(payload));
+        notification.setCreatedAt(Instant.now());
+        notificationMapper.insert(notification);
     }
 
     private long nvl(Long value) { return value == null ? 0 : value; }

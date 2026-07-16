@@ -43,6 +43,10 @@ shift later pages. Invalid cursors return HTTP 400 with code `INVALID_CURSOR`.
 - `GET /api/v1/posts/{id}`
 - `POST /api/v1/posts` — limited to 10 posts per user per hour; accepts up to 5 topic names in `topics`
 - `POST /api/v1/posts/{id}/useful` — body: `{ "liked": true }`
+- `POST /api/v1/posts/{id}/reactions/{type}` — `type` is `useful`, `like`, or `favorite`; body: `{ "active": true }`
+- `GET /api/v1/posts/{id}/comments?cursor=&limit=20`
+- `POST /api/v1/posts/{id}/comments` — body: `{ "content": "…", "parentId": "…" }`; replies are limited to two levels
+- `DELETE /api/v1/comments/{id}` — only the author can delete their comment
 - `GET /api/v1/topics?limit=20`
 - `GET /api/v1/topics/{slug}?cursor=&limit=20`
 
@@ -50,8 +54,9 @@ Publishing requires circle membership. Posts with `visibility: "circle"` are onl
 members on detail and circle-feed endpoints. Topics are created on first use and linked to posts
 through `dalan_post_topic`; topic feeds only expose public posts.
 
-The useful reaction has a unique `(postId, userId, type)` key and updates its aggregate count
-in the same database transaction, making retries idempotent.
+All post reactions use a unique `(postId, userId, type)` key and update their aggregate count
+in the same database transaction, making retries idempotent. Deleted comments remain as a
+placeholder so existing replies retain their context.
 
 ## Notifications and uploads
 

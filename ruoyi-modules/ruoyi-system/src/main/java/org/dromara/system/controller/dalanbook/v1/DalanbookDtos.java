@@ -107,6 +107,13 @@ public final class DalanbookDtos {
 
     public record UsefulRequest(@NotNull Boolean liked) {}
     public record UsefulResponse(long count, boolean liked) {}
+    public record ReactionRequest(@NotNull Boolean active) {}
+    public record ReactionResponse(String type, long count, boolean active) {}
+
+    public record CommentDto(String id, String parentId, Author author, String content, boolean deleted,
+                             boolean isMine, Instant createdAt, List<CommentDto> replies) {}
+    public record CommentPage(List<CommentDto> items, String nextCursor, boolean hasMore) {}
+    public record CreateCommentRequest(@NotBlank @Size(max = 1000) String content, String parentId) {}
 
     public record ImpressionItem(@NotBlank String postId, String categoryId, @NotNull Instant occurredAt) {}
     public record ImpressionRequest(@NotEmpty @Size(max = 100) List<@Valid ImpressionItem> items,

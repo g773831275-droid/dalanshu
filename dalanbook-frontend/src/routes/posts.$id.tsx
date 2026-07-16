@@ -1,5 +1,6 @@
 import { createFileRoute, notFound, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
   ThumbsUp,
@@ -9,13 +10,25 @@ import {
   MoreHorizontal,
   Users,
   Send,
+  Heart,
+  Reply,
+  Trash2,
 } from "lucide-react";
 import { TopNav } from "@/components/home/TopNav";
 import { MobileTopBar } from "@/components/home/MobileTopBar";
 import { LoginGateModal, useLoginGate } from "@/components/auth/LoginGate";
 import { posts, type Post } from "@/data/mockPosts";
 import { circles } from "@/data/mockCircles";
-import { getPost, setPostUseful, type Topic } from "@/lib/dalanbookApi";
+import {
+  createPostComment,
+  deletePostComment,
+  getPost,
+  getPostComments,
+  setPostReaction,
+  setPostUseful,
+  type ApiComment,
+  type Topic,
+} from "@/lib/dalanbookApi";
 
 type DetailPost = Post & {
   content: string;
@@ -23,6 +36,11 @@ type DetailPost = Post & {
   topics: Topic[];
   createdAt: string;
   isUseful: boolean;
+  isLiked: boolean;
+  isFavorited: boolean;
+  likeCount: number;
+  favoriteCount: number;
+  commentCount: number;
 };
 
 export const Route = createFileRoute("/posts/$id")({
@@ -45,6 +63,11 @@ export const Route = createFileRoute("/posts/$id")({
       topics: api.topics,
       createdAt: api.createdAt,
       isUseful: api.isUseful,
+      isLiked: api.isLiked,
+      isFavorited: api.isFavorited,
+      likeCount: api.likeCount,
+      favoriteCount: api.favoriteCount,
+      commentCount: api.commentCount,
     };
     return { post };
   },
@@ -82,29 +105,14 @@ function buildBody(post: DetailPost): string[] {
     .filter(Boolean);
 }
 
-const sampleComments = [
-  {
-    name: "周航",
-    color: "#245BDB",
-    time: "2 小时前",
-    text: "第 3 点我特别有感触，之前也是一味求多，后来才发现节奏稳更重要。收藏了。",
-    likes: 42,
-  },
-  {
-    name: "Kai",
-    color: "#1F9D6A",
-    time: "5 小时前",
-    text: "想问下作者，你这套方法在项目并行较多的时候还适用吗？我一忙起来就断。",
-    likes: 18,
-  },
-  {
-    name: "夜航船",
-    color: "#0D1B33",
-    time: "昨天",
-    text: "写得非常克制，没有那些营销味的形容词，谢谢分享。已加圈。",
-    likes: 9,
-  },
-];
+function formatCommentTime(value: string) {
+  const time = new Date(value).getTime();
+  const diff = Date.now() - time;
+  if (diff < 60_000) return "刚刚";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
+  return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" }).format(time);
+}
 
 function PostDetail() {
   const { post } = Route.useLoaderData();
@@ -123,32 +131,94 @@ function PostDetail() {
   const circleMeta = useMemo(() => circles.find((c) => c.name === post.circle), [post]);
 
   const [activeImg, setActiveImg] = useState(0);
-  const [liked, setLiked] = useState(post.isUseful);
-  const [saved, setSaved] = useState(false);
+  const [useful, setUseful] = useState(post.isUseful);
+  const [liked, setLiked] = useState(post.isLiked);
+  const [saved, setSaved] = useState(post.isFavorited);
   const [following, setFollowing] = useState(false);
   const [comment, setComment] = useState("");
+  const [replyTo, setReplyTo] = useState<ApiComment | null>(null);
+  const [commentCount, setCommentCount] = useState(post.commentCount);
+  const [commentSubmitting, setCommentSubmitting] = useState(false);
+  const [commentError, setCommentError] = useState("");
   const { require, gateProps } = useLoginGate();
-  const usefulCount = post.useful + (liked === post.isUseful ? 0 : liked ? 1 : -1);
-  const savedCount = 128 + (saved ? 1 : 0);
+  const { data: comments, isLoading: commentsLoading, refetch: refetchComments } = useQuery({
+    queryKey: ["post-comments", post.id],
+    queryFn: () => getPostComments(post.id),
+  });
+  const usefulCount = post.useful + (useful === post.isUseful ? 0 : useful ? 1 : -1);
+  const likeCount = post.likeCount + (liked === post.isLiked ? 0 : liked ? 1 : -1);
+  const savedCount = post.favoriteCount + (saved === post.isFavorited ? 0 : saved ? 1 : -1);
 
+  const toggleUseful = () =>
+    require("给帖子点赞", async () => {
+      const next = !useful;
+      setUseful(next);
+      try {
+        const result = await setPostUseful(post.id, next);
+        setUseful(result.liked);
+      } catch {
+        setUseful(!next);
+      }
+    });
   const toggleLike = () =>
     require("给帖子点赞", async () => {
       const next = !liked;
       setLiked(next);
       try {
-        const result = await setPostUseful(post.id, next);
-        setLiked(result.liked);
+        const result = await setPostReaction(post.id, "like", next);
+        setLiked(result.active);
       } catch {
         setLiked(!next);
       }
     });
-  const toggleSave = () => require("收藏帖子", () => setSaved((v) => !v));
+  const toggleSave = () =>
+    require("收藏帖子", async () => {
+      const next = !saved;
+      setSaved(next);
+      try {
+        const result = await setPostReaction(post.id, "favorite", next);
+        setSaved(result.active);
+      } catch {
+        setSaved(!next);
+      }
+    });
   const toggleFollow = () =>
     require(following ? "管理关注" : `关注 ${post.author}`, () => setFollowing((v) => !v));
-  const submitComment = () =>
+  const submitComment = () => {
+    const content = comment.trim();
+    if (!content || commentSubmitting) return;
     require("发表评论", () => {
-      setComment("");
+      void (async () => {
+        setCommentSubmitting(true);
+        setCommentError("");
+        try {
+          await createPostComment(post.id, content, replyTo?.id);
+          setComment("");
+          setReplyTo(null);
+          setCommentCount((count) => count + 1);
+          await refetchComments();
+        } catch {
+          setCommentError("评论发送失败，请稍后重试。");
+        } finally {
+          setCommentSubmitting(false);
+        }
+      })();
     });
+  };
+  const removeComment = (id: string) => {
+    require("删除评论", () => {
+      void (async () => {
+        setCommentError("");
+        try {
+          await deletePostComment(id);
+          setCommentCount((count) => Math.max(0, count - 1));
+          await refetchComments();
+        } catch {
+          setCommentError("评论删除失败，请稍后重试。");
+        }
+      })();
+    });
+  };
 
   const tags = useMemo(() => {
     const base = post.topics.map((topic) => topic.name);
@@ -339,16 +409,16 @@ function PostDetail() {
               <span>·</span>
               <span>{savedCount} 收藏</span>
               <span>·</span>
-              <span>{sampleComments.length} 条评论</span>
+              <span>{commentCount} 条评论</span>
             </div>
 
             {/* Desktop action row */}
             <div className="mt-4 hidden items-center gap-2 md:flex">
               <button
-                onClick={toggleLike}
+                onClick={toggleUseful}
                 className={
                   "flex h-10 items-center gap-1.5 rounded-[12px] px-4 text-[13.5px] font-medium transition-colors " +
-                  (liked
+                  (useful
                     ? "bg-foreground text-white"
                     : "border border-[color:var(--border-default)] bg-white/60 text-text-secondary hover:text-foreground")
                 }
@@ -366,7 +436,19 @@ function PostDetail() {
                 }
               >
                 <Bookmark className="h-4 w-4" strokeWidth={1.75} />
-                收藏
+                收藏 {savedCount}
+              </button>
+              <button
+                onClick={toggleLike}
+                className={
+                  "flex h-10 items-center gap-1.5 rounded-[12px] px-4 text-[13.5px] font-medium transition-colors " +
+                  (liked
+                    ? "bg-[color:var(--action-muted)] text-foreground"
+                    : "border border-[color:var(--border-default)] bg-white/60 text-text-secondary hover:text-foreground")
+                }
+              >
+                <Heart className="h-4 w-4" strokeWidth={1.75} />
+                点赞 {likeCount}
               </button>
               <button className="flex h-10 items-center gap-1.5 rounded-[12px] border border-[color:var(--border-default)] bg-white/60 px-4 text-[13.5px] font-medium text-text-secondary transition-colors hover:text-foreground">
                 <Share2 className="h-4 w-4" strokeWidth={1.75} />
@@ -377,8 +459,17 @@ function PostDetail() {
             {/* Comments */}
             <section className="mt-8">
               <h2 className="mb-3 text-[15px] font-semibold text-foreground">
-                评论 · {sampleComments.length}
+                评论 · {commentCount}
               </h2>
+
+              {replyTo && (
+                <div className="mb-2 flex items-center justify-between rounded-[10px] bg-[color:var(--action-muted)] px-3 py-2 text-[12px] text-text-secondary">
+                  <span>回复 @{replyTo.author.name}</span>
+                  <button onClick={() => setReplyTo(null)} className="hover:text-foreground">
+                    取消
+                  </button>
+                </div>
+              )}
 
               <form
                 onSubmit={(e) => {
@@ -389,7 +480,7 @@ function PostDetail() {
               >
                 <input
                   className="min-w-0 flex-1 bg-transparent text-[13.5px] outline-none placeholder:text-text-tertiary"
-                  placeholder={`回复 @${post.author}...`}
+                  placeholder={replyTo ? `回复 @${replyTo.author.name}...` : `回复 @${post.author}...`}
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
                   onFocus={(e) => {
@@ -398,46 +489,77 @@ function PostDetail() {
                 />
                 <button
                   type="submit"
+                  disabled={!comment.trim() || commentSubmitting}
                   className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-foreground text-white transition-colors hover:bg-[color:var(--action-primary-hover)]"
                   aria-label="发送"
                 >
                   <Send className="h-4 w-4" strokeWidth={1.75} />
                 </button>
               </form>
+              {commentError && <p className="mb-4 text-[12px] text-[#D94B4B]">{commentError}</p>}
 
               <ul className="space-y-5">
-                {sampleComments.map((c) => (
-                  <li key={c.name} className="flex gap-3">
+                {commentsLoading && <li className="text-[13px] text-text-tertiary">评论加载中…</li>}
+                {!commentsLoading && comments?.items.length === 0 && (
+                  <li className="text-[13px] text-text-tertiary">还没有评论，来说点什么吧。</li>
+                )}
+                {comments?.items.map((c) => (
+                  <li key={c.id} className="flex gap-3">
                     <span
                       className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold text-white"
-                      style={{ backgroundColor: c.color }}
+                      style={{ backgroundColor: c.author.avatarColor }}
                       aria-hidden
                     >
-                      {c.name.slice(0, 1)}
+                      {c.author.name.slice(0, 1)}
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline gap-2">
-                        <span className="text-[13px] font-medium text-foreground">{c.name}</span>
-                        <span className="text-[11.5px] text-text-tertiary">{c.time}</span>
+                        <span className="text-[13px] font-medium text-foreground">{c.author.name}</span>
+                        <span className="text-[11.5px] text-text-tertiary">{formatCommentTime(c.createdAt)}</span>
                       </div>
                       <p className="mt-1 text-[13.5px] leading-relaxed text-foreground/90">
-                        {c.text}
+                        {c.deleted ? "该评论已删除" : c.content}
                       </p>
-                      <div className="mt-1.5 flex items-center gap-3 text-[11.5px] text-text-tertiary">
-                        <button
-                          onClick={() => require("给评论点赞", () => {})}
-                          className="inline-flex items-center gap-1 hover:text-foreground"
-                        >
-                          <ThumbsUp className="h-3 w-3" strokeWidth={1.75} />
-                          {c.likes}
-                        </button>
-                        <button
-                          onClick={() => require(`回复 ${c.name}`, () => {})}
-                          className="hover:text-foreground"
-                        >
-                          回复
-                        </button>
-                      </div>
+                      {!c.deleted && (
+                        <div className="mt-1.5 flex items-center gap-3 text-[11.5px] text-text-tertiary">
+                          <button
+                            onClick={() => require(`回复 ${c.author.name}`, () => setReplyTo(c))}
+                            className="inline-flex items-center gap-1 hover:text-foreground"
+                          >
+                            <Reply className="h-3 w-3" strokeWidth={1.75} />
+                            回复
+                          </button>
+                          {c.isMine && (
+                            <button onClick={() => removeComment(c.id)} className="hover:text-foreground">
+                              删除
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {c.replies.length > 0 && (
+                        <ul className="mt-3 space-y-3 border-l border-[color:var(--border)] pl-3">
+                          {c.replies.map((reply) => (
+                            <li key={reply.id}>
+                              <div className="flex items-baseline gap-2">
+                                <span className="text-[12.5px] font-medium text-foreground">{reply.author.name}</span>
+                                <span className="text-[11px] text-text-tertiary">{formatCommentTime(reply.createdAt)}</span>
+                              </div>
+                              <p className="mt-1 text-[13px] leading-relaxed text-foreground/90">
+                                {reply.deleted ? "该回复已删除" : reply.content}
+                              </p>
+                              {!reply.deleted && reply.isMine && (
+                                <button
+                                  onClick={() => removeComment(reply.id)}
+                                  className="mt-1 inline-flex items-center gap-1 text-[11px] text-text-tertiary hover:text-foreground"
+                                >
+                                  <Trash2 className="h-3 w-3" strokeWidth={1.75} />
+                                  删除
+                                </button>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
                   </li>
                 ))}
@@ -557,16 +679,24 @@ function PostDetail() {
           <input
             className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-text-tertiary"
             placeholder={`想问 @${post.author} 什么...`}
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                submitComment();
+              }
+            }}
             onFocus={(e) => {
               if (!require("发表评论", () => {})) e.currentTarget.blur();
             }}
           />
         </div>
         <button
-          onClick={toggleLike}
+          onClick={toggleUseful}
           className={
             "flex h-10 w-10 items-center justify-center rounded-full transition-colors " +
-            (liked ? "bg-foreground text-white" : "text-text-secondary")
+            (useful ? "bg-foreground text-white" : "text-text-secondary")
           }
           aria-label="有用"
         >
@@ -581,6 +711,16 @@ function PostDetail() {
           aria-label="收藏"
         >
           <Bookmark className="h-5 w-5" strokeWidth={1.75} />
+        </button>
+        <button
+          onClick={toggleLike}
+          className={
+            "flex h-10 w-10 items-center justify-center rounded-full transition-colors " +
+            (liked ? "bg-foreground text-white" : "text-text-secondary")
+          }
+          aria-label="点赞"
+        >
+          <Heart className="h-5 w-5" strokeWidth={1.75} />
         </button>
         <button
           onClick={() => require("发表评论", () => {})}

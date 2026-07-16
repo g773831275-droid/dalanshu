@@ -36,6 +36,32 @@ export type ApiPost = {
   createdAt: string;
 };
 
+export type PostReactionType = "useful" | "like" | "favorite";
+
+export type CommentAuthor = {
+  id: string;
+  name: string;
+  avatarUrl?: string;
+  avatarColor: string;
+};
+
+export type ApiComment = {
+  id: string;
+  parentId?: string;
+  author: CommentAuthor;
+  content: string;
+  deleted: boolean;
+  isMine: boolean;
+  createdAt: string;
+  replies: ApiComment[];
+};
+
+export type CommentPage = {
+  items: ApiComment[];
+  nextCursor?: string;
+  hasMore: boolean;
+};
+
 type FeedItem = {
   id: string;
   cover: { url: string; ratio: Post["ratio"] };
@@ -136,6 +162,31 @@ export async function setPostUseful(id: string, liked: boolean) {
       body: JSON.stringify({ liked }),
     },
   );
+}
+
+export async function setPostReaction(id: string, type: PostReactionType, active: boolean) {
+  return authRequest<{ type: PostReactionType; count: number; active: boolean }>(
+    `/api/v1/posts/${encodeURIComponent(id)}/reactions/${type}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ active }),
+    },
+  );
+}
+
+export function getPostComments(id: string): Promise<CommentPage> {
+  return authRequest<CommentPage>(`/api/v1/posts/${encodeURIComponent(id)}/comments?limit=50`);
+}
+
+export function createPostComment(id: string, content: string, parentId?: string): Promise<ApiComment> {
+  return authRequest<ApiComment>(`/api/v1/posts/${encodeURIComponent(id)}/comments`, {
+    method: "POST",
+    body: JSON.stringify({ content, parentId }),
+  });
+}
+
+export function deletePostComment(id: string): Promise<{ deleted: boolean }> {
+  return authRequest<{ deleted: boolean }>(`/api/v1/comments/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 export async function getCircles(category?: string): Promise<Circle[]> {

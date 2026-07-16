@@ -10,4 +10,13 @@ import org.apache.ibatis.annotations.Update;
 public interface DalanPostStatsMapper extends BaseMapper<DalanPostStats> {
     @Update("UPDATE dalan_post_stats SET useful_count = GREATEST(0, useful_count + #{delta}) WHERE post_id = #{postId}")
     int changeUseful(@Param("postId") String postId, @Param("delta") int delta);
+
+    @Update("UPDATE dalan_post_stats SET like_count = GREATEST(0, like_count + #{delta}) WHERE post_id = #{postId}")
+    int changeLike(@Param("postId") String postId, @Param("delta") int delta);
+
+    @Update("UPDATE dalan_post_stats SET favorite_count = GREATEST(0, favorite_count + #{delta}) WHERE post_id = #{postId}")
+    int changeFavorite(@Param("postId") String postId, @Param("delta") int delta);
+
+    @Update("UPDATE dalan_post_stats SET comment_count = GREATEST(0, comment_count + #{delta}) WHERE post_id = #{postId}")
+    int changeComment(@Param("postId") String postId, @Param("delta") int delta);
 }

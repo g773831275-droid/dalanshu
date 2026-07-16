@@ -167,6 +167,33 @@ public class DalanbookV1Controller {
         return service.useful(id, request.liked());
     }
 
+    @RateLimiter(key = "T(org.dromara.common.satoken.utils.LoginHelper).getUserId()", time = 60, count = 120)
+    @PostMapping("/posts/{id}/reactions/{type}")
+    public ReactionResponse reaction(@PathVariable String id, @PathVariable String type,
+                                     @Valid @RequestBody ReactionRequest request) {
+        return service.reaction(id, type, request.active());
+    }
+
+    @SaIgnore
+    @GetMapping("/posts/{id}/comments")
+    public CommentPage comments(@PathVariable String id, @RequestParam(required = false) String cursor,
+                                @RequestParam(defaultValue = "20") @Min(1) @Max(50) int limit) {
+        return service.comments(id, cursor, limit);
+    }
+
+    @RateLimiter(key = "T(org.dromara.common.satoken.utils.LoginHelper).getUserId()", time = 60, count = 30)
+    @PostMapping("/posts/{id}/comments")
+    public ResponseEntity<CommentDto> createComment(@PathVariable String id,
+                                                     @Valid @RequestBody CreateCommentRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(service.createComment(id, request));
+    }
+
+    @DeleteMapping("/comments/{id}")
+    public Map<String, Boolean> deleteComment(@PathVariable String id) {
+        service.deleteComment(id);
+        return Map.of("deleted", true);
+    }
+
     @SaIgnore
     @PostMapping("/events/impression")
     public AcceptedResponse impression(@Valid @RequestBody ImpressionRequest request) {
