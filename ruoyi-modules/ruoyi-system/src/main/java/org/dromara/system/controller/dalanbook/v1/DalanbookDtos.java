@@ -85,7 +85,7 @@ public final class DalanbookDtos {
         @NotBlank @Size(max = 120) String title,
         @NotBlank @Size(max = 10000) String content,
         @NotBlank String circleId,
-        @NotEmpty @Size(max = 9) List<@Valid ImageInput> images,
+        @NotNull @Size(max = 9) List<@Valid ImageInput> images,
         @NotBlank String tag,
         @NotBlank String ratio,
         @Size(max = 5) List<@NotBlank @Size(max = 20) String> topics,

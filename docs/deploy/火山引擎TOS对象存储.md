@@ -25,6 +25,16 @@ export TOS_PREFIX='dalanbook'
 
 本机 `dev` Profile 会自动读取 `${user.home}/.config/dalanshu/tos.properties`。该文件位于 Git 仓库外，权限必须为 `600`；从 IDEA 启动时无需另外配置环境变量。
 
+可从模板创建本机私密配置：
+
+```bash
+mkdir -p ~/.config/dalanshu
+cp script/env/tos.properties.example ~/.config/dalanshu/tos.properties
+chmod 600 ~/.config/dalanshu/tos.properties
+```
+
+随后填写其中的 `VOLCENGINE_ACCESS_KEY_ID` 和 `VOLCENGINE_ACCESS_KEY_SECRET`，并重启后端服务。
+
 如果后端部署在火山引擎上海地域的同一 VPC，可按 TOS 控制台说明改用内网 S3 Endpoint：`tos-s3-cn-shanghai.ivolces.com`。当前后端若部署在其他云厂商，应使用上述外网 Endpoint。
 
 可选配置：

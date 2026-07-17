@@ -1,4 +1,4 @@
-import type { AuthUser } from "@/lib/authStore";
+import { authStore, type AuthUser } from "@/lib/authStore";
 import { useMockApi } from "@/lib/apiMode";
 import {
     getMockCaptcha,
@@ -55,6 +55,28 @@ export function getAccessToken() {
 export function clearTokens() {
     storage()?.removeItem(ACCESS_TOKEN_KEY);
     storage()?.removeItem(REFRESH_TOKEN_KEY);
+}
+
+function shouldPromptForLogin(path: string) {
+    return ![
+        "/api/v1/auth/login",
+        "/api/v1/auth/register",
+        "/api/v1/auth/refresh",
+        "/api/v1/auth/logout",
+        "/api/v1/auth/code",
+        "/api/v1/auth/email/code",
+    ].some((authPath) => path.startsWith(authPath));
+}
+
+function promptForLogin() {
+    clearTokens();
+    if (typeof window === "undefined") return;
+    authStore.set(null);
+    authStore.openAuth({
+        tab: "login",
+        redirect: `${window.location.pathname}${window.location.search}${window.location.hash}`,
+        action: "继续操作",
+    });
 }
 
 function saveTokens(data: LoginData) {
@@ -123,7 +145,7 @@ export async function authRequest<T>(
     const token = getAccessToken();
     const url =
         typeof window === "undefined" && path.startsWith("/")
-            ? `http://localhost:8080${path}`
+            ? `http://localhost:8881${path}`
             : path;
     const response = await fetch(url, {
         ...init,
@@ -138,6 +160,9 @@ export async function authRequest<T>(
     const unauthorized = response.status === 401 || asApiPayload(payload).code === 401;
     if (unauthorized && retry && (await refreshAccessToken())) {
         return authRequest<T>(path, init, false);
+    }
+    if (unauthorized && shouldPromptForLogin(path)) {
+        promptForLogin();
     }
     return unwrap<T>(payload, response);
 }

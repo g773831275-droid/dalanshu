@@ -18,6 +18,7 @@ import { MobileTopBar } from "@/components/home/MobileTopBar";
 import { LoginGateModal, useLoginGate } from "@/components/auth/LoginGate";
 import { posts, type Post } from "@/data/mockPosts";
 import { circles } from "@/data/mockCircles";
+import { AuthApiError } from "@/lib/authApi";
 import {
   createPostComment,
   deletePostComment,
@@ -42,8 +43,15 @@ type DetailPost = Omit<Post, "useful" | "usefulLiked"> & {
 
 export const Route = createFileRoute("/posts/$id")({
   loader: async ({ params }) => {
-    const api = await getPost(params.id).catch(() => undefined);
-    if (!api) throw notFound();
+    let api: Awaited<ReturnType<typeof getPost>>;
+    try {
+      api = await getPost(params.id);
+    } catch (error) {
+      if (error instanceof AuthApiError && Number(error.code) === 404) {
+        throw notFound();
+      }
+      throw error;
+    }
     const post: DetailPost = {
       id: api.id,
       cover: api.cover,
@@ -56,7 +64,7 @@ export const Route = createFileRoute("/posts/$id")({
       avatarUrl: api.author.avatarUrl,
       avatarColor: api.author.avatarColor,
       content: api.content,
-      images: api.images.map((image) => image.url),
+      images: api.images.map((image) => image.url).filter((url): url is string => Boolean(url)),
       topics: api.topics,
       createdAt: api.createdAt,
       isLiked: api.isLiked,
@@ -116,7 +124,7 @@ function PostDetail() {
 
   // Derive 2–3 extra gallery images from cover pool (deterministic).
   const gallery = useMemo(() => {
-    return post.images.length ? post.images : [post.cover];
+    return post.images.length ? post.images : post.cover ? [post.cover] : [];
   }, [post]);
 
   const related = useMemo(
@@ -251,40 +259,42 @@ function PostDetail() {
             </nav>
 
             {/* Gallery */}
-            <div className="overflow-hidden rounded-[16px] border border-[color:var(--border)] bg-[color:var(--action-muted)]">
-              <div className="relative">
-                <img
-                  key={gallery[activeImg]}
-                  src={gallery[activeImg]}
-                  alt={post.title}
-                  className="max-h-[560px] w-full object-cover"
-                />
-                {post.tag && (
-                  <span className="glass-dark absolute left-3 top-3 rounded-[6px] px-2 py-0.5 text-[11px] font-medium text-white">
-                    {post.tag}
-                  </span>
+            {gallery.length > 0 ? (
+              <div className="overflow-hidden rounded-[16px] border border-[color:var(--border)] bg-[color:var(--action-muted)]">
+                <div className="relative">
+                  <img
+                    key={gallery[activeImg]}
+                    src={gallery[activeImg]}
+                    alt={post.title}
+                    className="max-h-[560px] w-full object-cover"
+                  />
+                  {post.tag && (
+                    <span className="glass-dark absolute left-3 top-3 rounded-[6px] px-2 py-0.5 text-[11px] font-medium text-white">
+                      {post.tag}
+                    </span>
+                  )}
+                </div>
+                {gallery.length > 1 && (
+                  <div className="flex gap-2 p-2">
+                    {gallery.map((g, i) => (
+                      <button
+                        key={g + i}
+                        onClick={() => setActiveImg(i)}
+                        className={
+                          "relative h-14 w-14 shrink-0 overflow-hidden rounded-[10px] border transition " +
+                          (i === activeImg
+                            ? "border-foreground"
+                            : "border-[color:var(--border)] opacity-70 hover:opacity-100")
+                        }
+                        aria-label={`第 ${i + 1} 张`}
+                      >
+                        <img src={g} alt="" className="h-full w-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
-              {gallery.length > 1 && (
-                <div className="flex gap-2 p-2">
-                  {gallery.map((g, i) => (
-                    <button
-                      key={g + i}
-                      onClick={() => setActiveImg(i)}
-                      className={
-                        "relative h-14 w-14 shrink-0 overflow-hidden rounded-[10px] border transition " +
-                        (i === activeImg
-                          ? "border-foreground"
-                          : "border-[color:var(--border)] opacity-70 hover:opacity-100")
-                      }
-                      aria-label={`第 ${i + 1} 张`}
-                    >
-                      <img src={g} alt="" className="h-full w-full object-cover" />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            ) : null}
 
             {/* Author row */}
             <div className="mt-5 flex items-center gap-3">
