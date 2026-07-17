@@ -67,7 +67,7 @@ function Home() {
       <div className="mx-auto max-w-[1360px] px-3 pt-3 pb-28 md:flex md:gap-8 md:px-6 md:pt-2 md:pb-16">
         <LeftNav activeChannel={channel} onChannelChange={handleChannelChange} />
         <main className="min-w-0 flex-1">
-          <MasonryFeed categoryId={categoryId} />
+          <MasonryFeed categoryId={categoryId} channel={channel} />
         </main>
       </div>
 

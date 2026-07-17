@@ -31,6 +31,8 @@ import java.util.stream.Collectors;
 public class DalanbookApiService {
     private static final Set<String> TAGS = Set.of("经验", "提问", "测评", "复盘", "大神分享", "清单");
     private static final Set<String> RATIOS = Set.of("1/1", "4/5", "3/4", "4/3", "16/9");
+    private static final Set<String> HOME_CHANNELS = Set.of("recommend", "following", "latest");
+    private static final Set<String> MY_POST_TYPES = Set.of("published", "liked", "favorite");
     private static final Set<String> AGE_RANGES = Set.of("unknown", "under18", "18-24", "25-29", "30-34", "35-39", "40-49", "50plus");
     private static final Set<String> GENDERS = Set.of("unknown", "male", "female", "other");
     private static final List<Category> CATEGORIES = List.of(
@@ -69,7 +71,10 @@ public class DalanbookApiService {
         return new CategoriesResponse(CATEGORIES, "recommend");
     }
 
-    public FeedResponse feed(String categoryId, String cursor, int requestedLimit) {
+    public FeedResponse feed(String categoryId, String channel, String cursor, int requestedLimit) {
+        if (!HOME_CHANNELS.contains(channel)) {
+            throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_HOME_CHANNEL", "首页频道无效");
+        }
         int limit = normalizeLimit(requestedLimit, 40);
         CursorValue cursorValue = decodeCursor(cursor);
         Set<String> circleIds = categoryCircleIds(categoryId);
@@ -77,10 +82,16 @@ public class DalanbookApiService {
             return new FeedResponse(List.of(), null, false);
         }
 
+        Set<Long> followedUserIds = "following".equals(channel) ? followedUserIds(requireUserId()) : Set.of();
+        if ("following".equals(channel) && followedUserIds.isEmpty()) {
+            return new FeedResponse(List.of(), null, false);
+        }
+
         LambdaQueryWrapper<DalanPostV1> query = new LambdaQueryWrapper<DalanPostV1>()
             .eq(DalanPostV1::getStatus, "published")
             .eq(DalanPostV1::getVisibility, "public")
             .in(!circleIds.isEmpty(), DalanPostV1::getCircleId, circleIds)
+            .in(!followedUserIds.isEmpty(), DalanPostV1::getAuthorId, followedUserIds)
             .and(cursorValue != null, wrapper -> wrapper
                 .lt(DalanPostV1::getCreatedAt, cursorValue == null ? null : cursorValue.createdAt())
                 .or()
@@ -251,6 +262,71 @@ public class DalanbookApiService {
             profile == null ? "" : profile.getLocation(), profile == null ? 0 : nvl(profile.getFollowerCount()),
             profile == null ? 0 : nvl(profile.getFollowingCount()), profile == null ? 0 : nvl(profile.getPostCount()),
             following, createdAt);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public UserDto setFollowing(Long followeeId, boolean following) {
+        Long followerId = requireUserId();
+        if (Objects.equals(followerId, followeeId)) {
+            throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "FOLLOW_SELF_FORBIDDEN", "不能关注自己");
+        }
+        user(followeeId);
+        ensureProfile(followerId);
+        ensureProfile(followeeId);
+        LambdaQueryWrapper<DalanFollow> key = new LambdaQueryWrapper<DalanFollow>()
+            .eq(DalanFollow::getFollowerId, followerId)
+            .eq(DalanFollow::getFolloweeId, followeeId);
+        boolean exists = followMapper.selectCount(key) > 0;
+        if (following && !exists) {
+            DalanFollow follow = new DalanFollow();
+            follow.setFollowerId(followerId);
+            follow.setFolloweeId(followeeId);
+            follow.setCreatedAt(Instant.now());
+            try {
+                followMapper.insert(follow);
+                changeFollowCounts(followerId, followeeId, 1);
+                createNotification(followeeId, "user_follow", Map.of("actor", notificationActor(followerId)));
+            } catch (DuplicateKeyException ignored) {
+                // A retry raced with the first request; the desired state is already present.
+            }
+        } else if (!following && exists && followMapper.delete(key) > 0) {
+            changeFollowCounts(followerId, followeeId, -1);
+        }
+        return user(followeeId);
+    }
+
+    public FeedResponse userPosts(Long userId, String cursor, int requestedLimit) {
+        user(userId);
+        return postFeed(new LambdaQueryWrapper<DalanPostV1>()
+            .eq(DalanPostV1::getAuthorId, userId)
+            .eq(DalanPostV1::getVisibility, "public"), cursor, requestedLimit);
+    }
+
+    public FeedResponse myPosts(String type, String cursor, int requestedLimit) {
+        Long userId = requireUserId();
+        if (!MY_POST_TYPES.contains(type)) {
+            throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_MY_POST_TYPE", "个人内容类型无效");
+        }
+        if ("published".equals(type)) {
+            return postFeed(new LambdaQueryWrapper<DalanPostV1>().eq(DalanPostV1::getAuthorId, userId), cursor, requestedLimit);
+        }
+        List<String> postIds = reactionMapper.selectList(new LambdaQueryWrapper<DalanPostReaction>()
+                .select(DalanPostReaction::getPostId)
+                .eq(DalanPostReaction::getUserId, userId)
+                .eq(DalanPostReaction::getType, type))
+            .stream().map(DalanPostReaction::getPostId).toList();
+        if (postIds.isEmpty()) {
+            return new FeedResponse(List.of(), null, false);
+        }
+        LambdaQueryWrapper<DalanPostV1> query = new LambdaQueryWrapper<DalanPostV1>().in(DalanPostV1::getId, postIds);
+        Set<String> joinedIds = joinedCircleIds();
+        if (joinedIds.isEmpty()) {
+            query.eq(DalanPostV1::getVisibility, "public");
+        } else {
+            query.and(wrapper -> wrapper.eq(DalanPostV1::getVisibility, "public")
+                .or().in(DalanPostV1::getCircleId, joinedIds));
+        }
+        return postFeed(query, cursor, requestedLimit);
     }
 
     public CursorPage<CircleDto> circles(String category, String cursor, int requestedLimit) {
@@ -796,6 +872,14 @@ public class DalanbookApiService {
             .map(DalanCircleMember::getCircleId).collect(Collectors.toSet())).orElse(Set.of());
     }
 
+    private Set<Long> followedUserIds(Long followerId) {
+        return followMapper.selectList(new LambdaQueryWrapper<DalanFollow>()
+                .select(DalanFollow::getFolloweeId)
+                .eq(DalanFollow::getFollowerId, followerId)).stream()
+            .map(DalanFollow::getFolloweeId)
+            .collect(Collectors.toSet());
+    }
+
     private boolean isMember(String circleId, Long userId) {
         return memberMapper.selectCount(new LambdaQueryWrapper<DalanCircleMember>()
             .eq(DalanCircleMember::getCircleId, circleId).eq(DalanCircleMember::getUserId, userId)) > 0;
@@ -980,6 +1064,28 @@ public class DalanbookApiService {
         notification.setPayload(JsonUtils.toJsonString(payload));
         notification.setCreatedAt(Instant.now());
         notificationMapper.insert(notification);
+    }
+
+    private void changeFollowCounts(Long followerId, Long followeeId, int delta) {
+        profileMapper.update(null, new LambdaUpdateWrapper<DalanUserProfile>()
+            .eq(DalanUserProfile::getUserId, followerId)
+            .setSql("following_count = GREATEST(0, following_count + (" + delta + "))"));
+        profileMapper.update(null, new LambdaUpdateWrapper<DalanUserProfile>()
+            .eq(DalanUserProfile::getUserId, followeeId)
+            .setSql("follower_count = GREATEST(0, follower_count + (" + delta + "))"));
+    }
+
+    private Map<String, Object> notificationActor(Long userId) {
+        SysUser user = userMapper.selectById(userId);
+        Author author = author(userId, user);
+        Map<String, Object> actor = new HashMap<>();
+        actor.put("id", author.id());
+        actor.put("name", author.name());
+        actor.put("avatarColor", author.avatarColor());
+        if (author.avatarUrl() != null) {
+            actor.put("avatarUrl", author.avatarUrl());
+        }
+        return actor;
     }
 
     private long nvl(Long value) { return value == null ? 0 : value; }

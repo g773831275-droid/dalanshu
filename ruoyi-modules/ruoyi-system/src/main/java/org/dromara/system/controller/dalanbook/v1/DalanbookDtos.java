@@ -39,6 +39,7 @@ public final class DalanbookDtos {
     public record UserDto(String id, String nickname, String avatar, String bio, String gender,
                           String location, long followerCount, long followingCount, long postCount,
                           boolean isFollowing, Instant createdAt) {}
+    public record FollowRequest(@NotNull Boolean following) {}
     public record MeSummary(UserDto user, long unreadCount) {}
     public record DeviceDto(String deviceType, String brand, String model, String os, String osVersion,
                             String browser, String browserVersion, Instant lastSeenAt) {}

@@ -1,5 +1,5 @@
 import { createFileRoute, notFound, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -19,6 +19,7 @@ import { LoginGateModal, useLoginGate } from "@/components/auth/LoginGate";
 import { posts, type Post } from "@/data/mockPosts";
 import { circles } from "@/data/mockCircles";
 import { AuthApiError } from "@/lib/authApi";
+import { useAuthUser } from "@/lib/authStore";
 import {
   createPostComment,
   deletePostComment,
@@ -28,8 +29,10 @@ import {
   type ApiComment,
   type Topic,
 } from "@/lib/dalanbookApi";
+import { getUserProfile, setUserFollowing } from "@/lib/userApi";
 
 type DetailPost = Omit<Post, "useful" | "usefulLiked"> & {
+  authorId: string;
   content: string;
   images: string[];
   topics: Topic[];
@@ -60,6 +63,7 @@ export const Route = createFileRoute("/posts/$id")({
       circleId: api.circle.id,
       circle: api.circle.name,
       title: api.title,
+      authorId: api.author.id,
       author: api.author.name,
       avatarUrl: api.author.avatarUrl,
       avatarColor: api.author.avatarColor,
@@ -144,12 +148,21 @@ function PostDetail() {
   const [commentSubmitting, setCommentSubmitting] = useState(false);
   const [commentError, setCommentError] = useState("");
   const { require, gateProps } = useLoginGate();
+  const authUser = useAuthUser();
+  const { data: authorProfile, refetch: refetchAuthorProfile } = useQuery({
+    queryKey: ["dalanbook", "user", post.authorId],
+    queryFn: () => getUserProfile(post.authorId),
+  });
   const { data: comments, isLoading: commentsLoading, refetch: refetchComments } = useQuery({
     queryKey: ["dalanbook", "post", post.id, "comments"],
     queryFn: () => getPostComments(post.id, { limit: 50 }),
   });
   const likeCount = post.likeCount + (liked === post.isLiked ? 0 : liked ? 1 : -1);
   const savedCount = post.favoriteCount + (saved === post.isFavorited ? 0 : saved ? 1 : -1);
+
+  useEffect(() => {
+    setFollowing(authorProfile?.isFollowing ?? false);
+  }, [authorProfile?.isFollowing]);
 
   const toggleLike = () =>
     require("给帖子点赞", async () => {
@@ -174,7 +187,13 @@ function PostDetail() {
       }
     });
   const toggleFollow = () =>
-    require(following ? "管理关注" : `关注 ${post.author}`, () => setFollowing((v) => !v));
+    require(following ? "管理关注" : `关注 ${post.author}`, () => {
+      const next = !following;
+      setFollowing(next);
+      void setUserFollowing(post.authorId, next)
+        .then(() => refetchAuthorProfile())
+        .catch(() => setFollowing(!next));
+    });
   const submitComment = () => {
     const content = comment.trim();
     if (!content || commentSubmitting) return;
@@ -325,17 +344,19 @@ function PostDetail() {
                   · 2 天前
                 </div>
               </div>
-              <button
-                onClick={toggleFollow}
-                className={
-                  "h-8 rounded-[10px] px-3 text-[12.5px] font-medium transition-colors " +
-                  (following
-                    ? "bg-[color:var(--action-muted)] text-text-secondary hover:text-foreground"
-                    : "bg-foreground text-white hover:bg-[color:var(--action-primary-hover)]")
-                }
-              >
-                {following ? "已关注" : "+ 关注"}
-              </button>
+              {post.authorId !== authUser?.id && (
+                <button
+                  onClick={toggleFollow}
+                  className={
+                    "h-8 rounded-[10px] px-3 text-[12.5px] font-medium transition-colors " +
+                    (following
+                      ? "bg-[color:var(--action-muted)] text-text-secondary hover:text-foreground"
+                      : "bg-foreground text-white hover:bg-[color:var(--action-primary-hover)]")
+                  }
+                >
+                  {following ? "已关注" : "+ 关注"}
+                </button>
+              )}
               <button
                 className="flex h-8 w-8 items-center justify-center rounded-[10px] text-text-tertiary transition-colors hover:bg-black/[0.04] hover:text-foreground"
                 aria-label="更多"
@@ -572,29 +593,31 @@ function PostDetail() {
                 </div>
                 <dl className="mt-4 grid grid-cols-3 gap-2 text-center text-[11.5px] text-text-tertiary">
                   <div>
-                    <dd className="text-[14px] font-semibold text-foreground">128</dd>
+                    <dd className="text-[14px] font-semibold text-foreground">{authorProfile?.postCount ?? 0}</dd>
                     <dt>作品</dt>
                   </div>
                   <div>
-                    <dd className="text-[14px] font-semibold text-foreground">4.2k</dd>
+                    <dd className="text-[14px] font-semibold text-foreground">{authorProfile?.followerCount ?? 0}</dd>
                     <dt>粉丝</dt>
                   </div>
                   <div>
-                    <dd className="text-[14px] font-semibold text-foreground">32</dd>
+                    <dd className="text-[14px] font-semibold text-foreground">{authorProfile?.followingCount ?? 0}</dd>
                     <dt>关注</dt>
                   </div>
                 </dl>
-                <button
-                  onClick={toggleFollow}
-                  className={
-                    "mt-4 h-9 w-full rounded-[10px] text-[13px] font-medium transition-colors " +
-                    (following
-                      ? "bg-[color:var(--action-muted)] text-text-secondary hover:text-foreground"
-                      : "bg-foreground text-white hover:bg-[color:var(--action-primary-hover)]")
-                  }
-                >
-                  {following ? "已关注" : "关注 " + post.author}
-                </button>
+                {post.authorId !== authUser?.id && (
+                  <button
+                    onClick={toggleFollow}
+                    className={
+                      "mt-4 h-9 w-full rounded-[10px] text-[13px] font-medium transition-colors " +
+                      (following
+                        ? "bg-[color:var(--action-muted)] text-text-secondary hover:text-foreground"
+                        : "bg-foreground text-white hover:bg-[color:var(--action-primary-hover)]")
+                    }
+                  >
+                    {following ? "已关注" : "关注 " + post.author}
+                  </button>
+                )}
               </section>
 
               {/* Circle card */}

@@ -6,6 +6,7 @@ import {
   getHomeFeed,
   type HomeFeedItem,
 } from "@/lib/homeApi";
+import type { HomeChannel } from "@/lib/homeUi";
 import type { Post } from "@/data/mockPosts";
 import { PostCard } from "./PostCard";
 import { CircleRecCard } from "./CircleRecCard";
@@ -27,7 +28,7 @@ function toPost(item: HomeFeedItem): Post {
   };
 }
 
-export function MasonryFeed({ categoryId }: { categoryId: string }) {
+export function MasonryFeed({ categoryId, channel }: { categoryId: string; channel: HomeChannel }) {
   const user = useAuthUser();
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const {
@@ -40,10 +41,11 @@ export function MasonryFeed({ categoryId }: { categoryId: string }) {
     fetchNextPage,
     refetch,
   } = useInfiniteQuery({
-    queryKey: ["home", "feed", categoryId, user?.id ?? "anonymous"],
+    queryKey: ["home", "feed", channel, categoryId, user?.id ?? "anonymous"],
     queryFn: ({ pageParam }) =>
       getHomeFeed({
         categoryId,
+        channel,
         cursor: pageParam,
         limit: 20,
       }),
