@@ -6,11 +6,11 @@ import { TopNav } from "@/components/home/TopNav";
 import { MobileTopBar } from "@/components/home/MobileTopBar";
 import { LoginGateModal, useLoginGate } from "@/components/auth/LoginGate";
 import { useAuthUser } from "@/lib/authStore";
-import { getCircles, publishPost, uploadImage } from "@/lib/dalanbookApi";
+import { getCircles, publishPost, uploadImage, type UploadResult } from "@/lib/dalanbookApi";
 
 export const Route = createFileRoute("/publish")({
   head: () => ({
-    meta: [{ title: "发布笔记 · 大蓝书" }, { name: "robots", content: "noindex" }],
+    meta: [{ title: "发布帖子 · 大蓝书" }, { name: "robots", content: "noindex" }],
   }),
   component: PublishPage,
 });
@@ -21,11 +21,11 @@ function PublishPage() {
   const user = useAuthUser();
   const { require, gateProps } = useLoginGate();
   const { data: circles = [] } = useQuery({
-    queryKey: ["dalanbook", "circles"],
+    queryKey: ["dalanbook", "circles", user?.id ?? "anonymous"],
     queryFn: () => getCircles(),
   });
   const joinedCircles = circles.filter((circle) => circle.joined);
-  const [images, setImages] = useState<string[]>([]);
+  const [images, setImages] = useState<UploadResult[]>([]);
   const [uploading, setUploading] = useState(false);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -36,12 +36,6 @@ function PublishPage() {
   const titleMax = 30;
   const bodyMax = 1000;
   const selectedCircleId = circleId || joinedCircles[0]?.id || "";
-  const canPublish =
-    !uploading &&
-    title.trim().length > 0 &&
-    body.trim().length > 0 &&
-    images.length > 0 &&
-    !!selectedCircleId;
 
   async function addImages(files: FileList | null) {
     if (!files?.length) return;
@@ -55,7 +49,7 @@ function PublishPage() {
     const results = await Promise.allSettled(selected.map(uploadImage));
     const uploaded = results
       .filter((result) => result.status === "fulfilled")
-      .map((result) => result.value.url);
+      .map((result) => result.value);
     if (uploaded.length) setImages((prev) => [...prev, ...uploaded]);
     const failed = results.find((result) => result.status === "rejected");
     setToast(
@@ -74,8 +68,16 @@ function PublishPage() {
   }
 
   function onPublish() {
-    if (!canPublish || publishing) return;
-    require("发布笔记", async () => {
+    if (publishing || uploading) return;
+    require("发布帖子", async () => {
+      if (!title.trim() || !body.trim()) {
+        setToast("请填写标题和正文");
+        return;
+      }
+      if (!selectedCircleId) {
+        setToast("请先加入或创建一个圈子");
+        return;
+      }
       setPublishing(true);
       setToast("正在发布…");
       try {
@@ -83,11 +85,15 @@ function PublishPage() {
           title: title.trim(),
           content: body.trim(),
           circleId: selectedCircleId,
-          images: images.map((url) => ({ url, ratio: "4/5" as const })),
+          images: images.map((image) => ({
+            ossId: image.ossId,
+            url: image.url,
+            ratio: "4/5" as const,
+          })),
           ratio: "4/5",
           tag: "经验",
         });
-        setToast("发布成功，正在打开笔记…");
+        setToast("发布成功，正在打开帖子…");
         window.setTimeout(() => navigate({ to: "/posts/$id", params: { id: post.id } }), 500);
       } catch (error) {
         setToast(error instanceof Error ? error.message : "发布失败，请稍后重试");
@@ -119,19 +125,19 @@ function PublishPage() {
               取消
             </Link>
             <h1 className="text-[16px] font-semibold tracking-[-0.01em] text-foreground">
-              发布笔记
+              发布帖子
             </h1>
             <span className="w-[52px]" aria-hidden />
           </div>
 
           {/* Images */}
           <div className="grid grid-cols-4 gap-2">
-            {images.map((src, i) => (
+            {images.map((image, i) => (
               <div
-                key={src + i}
+                key={image.ossId}
                 className="relative aspect-square overflow-hidden rounded-[12px] border border-[color:var(--border)]"
               >
-                <img src={src} alt="" className="h-full w-full object-cover" />
+                <img src={image.url} alt="" className="h-full w-full object-cover" />
                 {i === 0 && (
                   <span className="absolute bottom-1 left-1 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
                     封面
@@ -230,13 +236,11 @@ function PublishPage() {
           {/* Desktop actions */}
           <div className="mt-6 hidden items-center justify-end gap-2 md:flex">
             <button
-              disabled={!canPublish || publishing}
+              disabled={publishing || uploading}
               onClick={onPublish}
               className={
                 "h-10 rounded-[12px] px-5 text-[13.5px] font-medium transition-colors " +
-                (canPublish
-                  ? "bg-foreground text-white hover:bg-[color:var(--action-primary-hover)]"
-                  : "cursor-not-allowed bg-[color:var(--action-muted)] text-text-tertiary")
+                "bg-foreground text-white hover:bg-[color:var(--action-primary-hover)]"
               }
             >
               {publishing ? "发布中…" : "发布"}
@@ -248,13 +252,11 @@ function PublishPage() {
       {/* Mobile fixed bar */}
       <div className="glass-base fixed inset-x-0 bottom-0 z-40 flex items-center gap-2 border-t border-[color:var(--border)] px-3 py-2.5 md:hidden">
         <button
-          disabled={!canPublish || publishing}
+          disabled={publishing || uploading}
           onClick={onPublish}
           className={
             "h-10 w-full rounded-[12px] text-[14px] font-medium transition-colors " +
-            (canPublish
-              ? "bg-foreground text-white"
-              : "cursor-not-allowed bg-[color:var(--action-muted)] text-text-tertiary")
+            "bg-foreground text-white"
           }
         >
           {publishing ? "发布中…" : "发布"}

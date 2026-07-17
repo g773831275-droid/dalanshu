@@ -126,7 +126,7 @@ function AuthPage() {
                         <p className="mt-1.5 text-[13.5px] text-text-secondary">
                             {tab === "login"
                                 ? "登录后继续你上次的阅读与讨论。"
-                                : "注册后可以加入圈子、发布笔记与提问。"}
+                                : "注册后可以加入圈子、发布帖子与提问。"}
                         </p>
 
                         {/* Tabs */}

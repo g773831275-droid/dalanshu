@@ -53,6 +53,8 @@ import java.util.Map;
 @Service
 public class SysOssServiceImpl implements ISysOssService, OssService {
 
+    private static final Duration PRIVATE_URL_TTL = Duration.ofMinutes(30);
+
     private final SysOssMapper baseMapper;
 
     /**
@@ -126,8 +128,8 @@ public class SysOssServiceImpl implements ISysOssService, OssService {
             SysOssVo vo = SpringUtils.getAopProxy(this).getById(id);
             if (ObjectUtil.isNotNull(vo)) {
                 try {
-                    vo.setUrl(this.matchingUrl(vo).getUrl());
-                    list.add(BeanUtil.toBean(vo, OssDTO.class));
+                    SysOssVo matched = this.matchingUrl(vo);
+                    list.add(BeanUtil.toBean(matched, OssDTO.class));
                 } catch (Exception ignored) {
                     // 如果oss异常无法连接则将数据直接返回
                     list.add(BeanUtil.toBean(vo, OssDTO.class));
@@ -162,6 +164,15 @@ public class SysOssServiceImpl implements ISysOssService, OssService {
     @Override
     public SysOssVo getById(Long ossId) {
         return baseMapper.selectVoById(ossId);
+    }
+
+    @Override
+    public String getAccessUrl(Long ossId) {
+        if (ossId == null) {
+            return null;
+        }
+        SysOssVo oss = SpringUtils.getAopProxy(this).getById(ossId);
+        return ObjectUtil.isNull(oss) ? null : matchingUrl(oss).getUrl();
     }
 
 
@@ -268,17 +279,18 @@ public class SysOssServiceImpl implements ISysOssService, OssService {
     }
 
     /**
-     * 桶类型为 private 的URL 修改为临时URL时长为120s
+     * 为 private 桶生成当前有效的临时访问地址
      *
      * @param oss OSS对象
      * @return oss 匹配Url的OSS对象
      */
     private SysOssVo matchingUrl(SysOssVo oss) {
-        OssClient storage = OssFactory.instance(oss.getService());
-        // 仅修改桶类型为 private 的URL，临时URL时长为120s
+        SysOssVo result = BeanUtil.copyProperties(oss, SysOssVo.class);
+        OssClient storage = OssFactory.instance(result.getService());
+        // 私有桶每次读取时生成访问地址，不修改缓存中的原始 OSS 元数据
         if (AccessPolicyType.PRIVATE == storage.getAccessPolicy()) {
-            oss.setUrl(storage.createPresignedGetUrl(oss.getFileName(), Duration.ofSeconds(120)));
+            result.setUrl(storage.createPresignedGetUrl(result.getFileName(), PRIVATE_URL_TTL));
         }
-        return oss;
+        return result;
     }
 }

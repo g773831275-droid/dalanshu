@@ -45,6 +45,15 @@ public interface ISysOssService {
     SysOssVo getById(Long ossId);
 
     /**
+     * 根据 ossId 获取当前有效的访问地址。
+     * 私有桶会重新生成临时签名，签名地址本身不会进入缓存。
+     *
+     * @param ossId 文件在数据库中的唯一标识
+     * @return 当前有效的访问地址，文件不存在时返回 null
+     */
+    String getAccessUrl(Long ossId);
+
+    /**
      * 上传 MultipartFile 到对象存储服务，并保存文件信息到数据库
      *
      * @param file 要上传的 MultipartFile 对象

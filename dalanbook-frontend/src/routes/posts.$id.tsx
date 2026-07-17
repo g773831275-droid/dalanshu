@@ -1,5 +1,5 @@
 import { createFileRoute, notFound, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -18,6 +18,8 @@ import { MobileTopBar } from "@/components/home/MobileTopBar";
 import { LoginGateModal, useLoginGate } from "@/components/auth/LoginGate";
 import { posts, type Post } from "@/data/mockPosts";
 import { circles } from "@/data/mockCircles";
+import { AuthApiError } from "@/lib/authApi";
+import { useAuthUser } from "@/lib/authStore";
 import {
   createPostComment,
   deletePostComment,
@@ -27,8 +29,10 @@ import {
   type ApiComment,
   type Topic,
 } from "@/lib/dalanbookApi";
+import { getUserProfile, setUserFollowing } from "@/lib/userApi";
 
 type DetailPost = Omit<Post, "useful" | "usefulLiked"> & {
+  authorId: string;
   content: string;
   images: string[];
   topics: Topic[];
@@ -42,8 +46,15 @@ type DetailPost = Omit<Post, "useful" | "usefulLiked"> & {
 
 export const Route = createFileRoute("/posts/$id")({
   loader: async ({ params }) => {
-    const api = await getPost(params.id).catch(() => undefined);
-    if (!api) throw notFound();
+    let api: Awaited<ReturnType<typeof getPost>>;
+    try {
+      api = await getPost(params.id);
+    } catch (error) {
+      if (error instanceof AuthApiError && Number(error.code) === 404) {
+        throw notFound();
+      }
+      throw error;
+    }
     const post: DetailPost = {
       id: api.id,
       cover: api.cover,
@@ -52,11 +63,12 @@ export const Route = createFileRoute("/posts/$id")({
       circleId: api.circle.id,
       circle: api.circle.name,
       title: api.title,
+      authorId: api.author.id,
       author: api.author.name,
       avatarUrl: api.author.avatarUrl,
       avatarColor: api.author.avatarColor,
       content: api.content,
-      images: api.images.map((image) => image.url),
+      images: api.images.map((image) => image.url).filter((url): url is string => Boolean(url)),
       topics: api.topics,
       createdAt: api.createdAt,
       isLiked: api.isLiked,
@@ -116,7 +128,7 @@ function PostDetail() {
 
   // Derive 2–3 extra gallery images from cover pool (deterministic).
   const gallery = useMemo(() => {
-    return post.images.length ? post.images : [post.cover];
+    return post.images.length ? post.images : post.cover ? [post.cover] : [];
   }, [post]);
 
   const related = useMemo(
@@ -136,12 +148,21 @@ function PostDetail() {
   const [commentSubmitting, setCommentSubmitting] = useState(false);
   const [commentError, setCommentError] = useState("");
   const { require, gateProps } = useLoginGate();
+  const authUser = useAuthUser();
+  const { data: authorProfile, refetch: refetchAuthorProfile } = useQuery({
+    queryKey: ["dalanbook", "user", post.authorId],
+    queryFn: () => getUserProfile(post.authorId),
+  });
   const { data: comments, isLoading: commentsLoading, refetch: refetchComments } = useQuery({
     queryKey: ["dalanbook", "post", post.id, "comments"],
     queryFn: () => getPostComments(post.id, { limit: 50 }),
   });
   const likeCount = post.likeCount + (liked === post.isLiked ? 0 : liked ? 1 : -1);
   const savedCount = post.favoriteCount + (saved === post.isFavorited ? 0 : saved ? 1 : -1);
+
+  useEffect(() => {
+    setFollowing(authorProfile?.isFollowing ?? false);
+  }, [authorProfile?.isFollowing]);
 
   const toggleLike = () =>
     require("给帖子点赞", async () => {
@@ -166,7 +187,13 @@ function PostDetail() {
       }
     });
   const toggleFollow = () =>
-    require(following ? "管理关注" : `关注 ${post.author}`, () => setFollowing((v) => !v));
+    require(following ? "管理关注" : `关注 ${post.author}`, () => {
+      const next = !following;
+      setFollowing(next);
+      void setUserFollowing(post.authorId, next)
+        .then(() => refetchAuthorProfile())
+        .catch(() => setFollowing(!next));
+    });
   const submitComment = () => {
     const content = comment.trim();
     if (!content || commentSubmitting) return;
@@ -251,40 +278,42 @@ function PostDetail() {
             </nav>
 
             {/* Gallery */}
-            <div className="overflow-hidden rounded-[16px] border border-[color:var(--border)] bg-[color:var(--action-muted)]">
-              <div className="relative">
-                <img
-                  key={gallery[activeImg]}
-                  src={gallery[activeImg]}
-                  alt={post.title}
-                  className="max-h-[560px] w-full object-cover"
-                />
-                {post.tag && (
-                  <span className="glass-dark absolute left-3 top-3 rounded-[6px] px-2 py-0.5 text-[11px] font-medium text-white">
-                    {post.tag}
-                  </span>
+            {gallery.length > 0 ? (
+              <div className="overflow-hidden rounded-[16px] border border-[color:var(--border)] bg-[color:var(--action-muted)]">
+                <div className="relative">
+                  <img
+                    key={gallery[activeImg]}
+                    src={gallery[activeImg]}
+                    alt={post.title}
+                    className="max-h-[560px] w-full object-cover"
+                  />
+                  {post.tag && (
+                    <span className="glass-dark absolute left-3 top-3 rounded-[6px] px-2 py-0.5 text-[11px] font-medium text-white">
+                      {post.tag}
+                    </span>
+                  )}
+                </div>
+                {gallery.length > 1 && (
+                  <div className="flex gap-2 p-2">
+                    {gallery.map((g, i) => (
+                      <button
+                        key={g + i}
+                        onClick={() => setActiveImg(i)}
+                        className={
+                          "relative h-14 w-14 shrink-0 overflow-hidden rounded-[10px] border transition " +
+                          (i === activeImg
+                            ? "border-foreground"
+                            : "border-[color:var(--border)] opacity-70 hover:opacity-100")
+                        }
+                        aria-label={`第 ${i + 1} 张`}
+                      >
+                        <img src={g} alt="" className="h-full w-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
-              {gallery.length > 1 && (
-                <div className="flex gap-2 p-2">
-                  {gallery.map((g, i) => (
-                    <button
-                      key={g + i}
-                      onClick={() => setActiveImg(i)}
-                      className={
-                        "relative h-14 w-14 shrink-0 overflow-hidden rounded-[10px] border transition " +
-                        (i === activeImg
-                          ? "border-foreground"
-                          : "border-[color:var(--border)] opacity-70 hover:opacity-100")
-                      }
-                      aria-label={`第 ${i + 1} 张`}
-                    >
-                      <img src={g} alt="" className="h-full w-full object-cover" />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            ) : null}
 
             {/* Author row */}
             <div className="mt-5 flex items-center gap-3">
@@ -315,17 +344,19 @@ function PostDetail() {
                   · 2 天前
                 </div>
               </div>
-              <button
-                onClick={toggleFollow}
-                className={
-                  "h-8 rounded-[10px] px-3 text-[12.5px] font-medium transition-colors " +
-                  (following
-                    ? "bg-[color:var(--action-muted)] text-text-secondary hover:text-foreground"
-                    : "bg-foreground text-white hover:bg-[color:var(--action-primary-hover)]")
-                }
-              >
-                {following ? "已关注" : "+ 关注"}
-              </button>
+              {post.authorId !== authUser?.id && (
+                <button
+                  onClick={toggleFollow}
+                  className={
+                    "h-8 rounded-[10px] px-3 text-[12.5px] font-medium transition-colors " +
+                    (following
+                      ? "bg-[color:var(--action-muted)] text-text-secondary hover:text-foreground"
+                      : "bg-foreground text-white hover:bg-[color:var(--action-primary-hover)]")
+                  }
+                >
+                  {following ? "已关注" : "+ 关注"}
+                </button>
+              )}
               <button
                 className="flex h-8 w-8 items-center justify-center rounded-[10px] text-text-tertiary transition-colors hover:bg-black/[0.04] hover:text-foreground"
                 aria-label="更多"
@@ -562,29 +593,31 @@ function PostDetail() {
                 </div>
                 <dl className="mt-4 grid grid-cols-3 gap-2 text-center text-[11.5px] text-text-tertiary">
                   <div>
-                    <dd className="text-[14px] font-semibold text-foreground">128</dd>
+                    <dd className="text-[14px] font-semibold text-foreground">{authorProfile?.postCount ?? 0}</dd>
                     <dt>作品</dt>
                   </div>
                   <div>
-                    <dd className="text-[14px] font-semibold text-foreground">4.2k</dd>
+                    <dd className="text-[14px] font-semibold text-foreground">{authorProfile?.followerCount ?? 0}</dd>
                     <dt>粉丝</dt>
                   </div>
                   <div>
-                    <dd className="text-[14px] font-semibold text-foreground">32</dd>
+                    <dd className="text-[14px] font-semibold text-foreground">{authorProfile?.followingCount ?? 0}</dd>
                     <dt>关注</dt>
                   </div>
                 </dl>
-                <button
-                  onClick={toggleFollow}
-                  className={
-                    "mt-4 h-9 w-full rounded-[10px] text-[13px] font-medium transition-colors " +
-                    (following
-                      ? "bg-[color:var(--action-muted)] text-text-secondary hover:text-foreground"
-                      : "bg-foreground text-white hover:bg-[color:var(--action-primary-hover)]")
-                  }
-                >
-                  {following ? "已关注" : "关注 " + post.author}
-                </button>
+                {post.authorId !== authUser?.id && (
+                  <button
+                    onClick={toggleFollow}
+                    className={
+                      "mt-4 h-9 w-full rounded-[10px] text-[13px] font-medium transition-colors " +
+                      (following
+                        ? "bg-[color:var(--action-muted)] text-text-secondary hover:text-foreground"
+                        : "bg-foreground text-white hover:bg-[color:var(--action-primary-hover)]")
+                    }
+                  >
+                    {following ? "已关注" : "关注 " + post.author}
+                  </button>
+                )}
               </section>
 
               {/* Circle card */}

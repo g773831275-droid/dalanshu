@@ -1,0 +1,2 @@
+# 复制到 ~/.config/dalanshu/mail.properties 后填写，不要将真实密码提交到 Git。
+DALANSHU_MAIL_PASSWORD=<阿里云DirectMail-SMTP密码>

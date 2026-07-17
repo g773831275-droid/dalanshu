@@ -31,6 +31,8 @@ import java.util.stream.Collectors;
 public class DalanbookApiService {
     private static final Set<String> TAGS = Set.of("经验", "提问", "测评", "复盘", "大神分享", "清单");
     private static final Set<String> RATIOS = Set.of("1/1", "4/5", "3/4", "4/3", "16/9");
+    private static final Set<String> HOME_CHANNELS = Set.of("recommend", "following", "latest");
+    private static final Set<String> MY_POST_TYPES = Set.of("published", "liked", "favorite");
     private static final Set<String> AGE_RANGES = Set.of("unknown", "under18", "18-24", "25-29", "30-34", "35-39", "40-49", "50plus");
     private static final Set<String> GENDERS = Set.of("unknown", "male", "female", "other");
     private static final List<Category> CATEGORIES = List.of(
@@ -69,7 +71,10 @@ public class DalanbookApiService {
         return new CategoriesResponse(CATEGORIES, "recommend");
     }
 
-    public FeedResponse feed(String categoryId, String cursor, int requestedLimit) {
+    public FeedResponse feed(String categoryId, String channel, String cursor, int requestedLimit) {
+        if (!HOME_CHANNELS.contains(channel)) {
+            throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_HOME_CHANNEL", "首页频道无效");
+        }
         int limit = normalizeLimit(requestedLimit, 40);
         CursorValue cursorValue = decodeCursor(cursor);
         Set<String> circleIds = categoryCircleIds(categoryId);
@@ -77,10 +82,16 @@ public class DalanbookApiService {
             return new FeedResponse(List.of(), null, false);
         }
 
+        Set<Long> followedUserIds = "following".equals(channel) ? followedUserIds(requireUserId()) : Set.of();
+        if ("following".equals(channel) && followedUserIds.isEmpty()) {
+            return new FeedResponse(List.of(), null, false);
+        }
+
         LambdaQueryWrapper<DalanPostV1> query = new LambdaQueryWrapper<DalanPostV1>()
             .eq(DalanPostV1::getStatus, "published")
             .eq(DalanPostV1::getVisibility, "public")
             .in(!circleIds.isEmpty(), DalanPostV1::getCircleId, circleIds)
+            .in(!followedUserIds.isEmpty(), DalanPostV1::getAuthorId, followedUserIds)
             .and(cursorValue != null, wrapper -> wrapper
                 .lt(DalanPostV1::getCreatedAt, cursorValue == null ? null : cursorValue.createdAt())
                 .or()
@@ -194,6 +205,7 @@ public class DalanbookApiService {
 
         SysUser user = userMapper.selectById(userId);
         user.setNickName(request.nickname().trim());
+        user.setSex(sexCode(request.gender()));
         userMapper.updateById(user);
         return toMyProfile(user, profile);
     }
@@ -250,6 +262,71 @@ public class DalanbookApiService {
             profile == null ? "" : profile.getLocation(), profile == null ? 0 : nvl(profile.getFollowerCount()),
             profile == null ? 0 : nvl(profile.getFollowingCount()), profile == null ? 0 : nvl(profile.getPostCount()),
             following, createdAt);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public UserDto setFollowing(Long followeeId, boolean following) {
+        Long followerId = requireUserId();
+        if (Objects.equals(followerId, followeeId)) {
+            throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "FOLLOW_SELF_FORBIDDEN", "不能关注自己");
+        }
+        user(followeeId);
+        ensureProfile(followerId);
+        ensureProfile(followeeId);
+        LambdaQueryWrapper<DalanFollow> key = new LambdaQueryWrapper<DalanFollow>()
+            .eq(DalanFollow::getFollowerId, followerId)
+            .eq(DalanFollow::getFolloweeId, followeeId);
+        boolean exists = followMapper.selectCount(key) > 0;
+        if (following && !exists) {
+            DalanFollow follow = new DalanFollow();
+            follow.setFollowerId(followerId);
+            follow.setFolloweeId(followeeId);
+            follow.setCreatedAt(Instant.now());
+            try {
+                followMapper.insert(follow);
+                changeFollowCounts(followerId, followeeId, 1);
+                createNotification(followeeId, "user_follow", Map.of("actor", notificationActor(followerId)));
+            } catch (DuplicateKeyException ignored) {
+                // A retry raced with the first request; the desired state is already present.
+            }
+        } else if (!following && exists && followMapper.delete(key) > 0) {
+            changeFollowCounts(followerId, followeeId, -1);
+        }
+        return user(followeeId);
+    }
+
+    public FeedResponse userPosts(Long userId, String cursor, int requestedLimit) {
+        user(userId);
+        return postFeed(new LambdaQueryWrapper<DalanPostV1>()
+            .eq(DalanPostV1::getAuthorId, userId)
+            .eq(DalanPostV1::getVisibility, "public"), cursor, requestedLimit);
+    }
+
+    public FeedResponse myPosts(String type, String cursor, int requestedLimit) {
+        Long userId = requireUserId();
+        if (!MY_POST_TYPES.contains(type)) {
+            throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_MY_POST_TYPE", "个人内容类型无效");
+        }
+        if ("published".equals(type)) {
+            return postFeed(new LambdaQueryWrapper<DalanPostV1>().eq(DalanPostV1::getAuthorId, userId), cursor, requestedLimit);
+        }
+        List<String> postIds = reactionMapper.selectList(new LambdaQueryWrapper<DalanPostReaction>()
+                .select(DalanPostReaction::getPostId)
+                .eq(DalanPostReaction::getUserId, userId)
+                .eq(DalanPostReaction::getType, type))
+            .stream().map(DalanPostReaction::getPostId).toList();
+        if (postIds.isEmpty()) {
+            return new FeedResponse(List.of(), null, false);
+        }
+        LambdaQueryWrapper<DalanPostV1> query = new LambdaQueryWrapper<DalanPostV1>().in(DalanPostV1::getId, postIds);
+        Set<String> joinedIds = joinedCircleIds();
+        if (joinedIds.isEmpty()) {
+            query.eq(DalanPostV1::getVisibility, "public");
+        } else {
+            query.and(wrapper -> wrapper.eq(DalanPostV1::getVisibility, "public")
+                .or().in(DalanPostV1::getCircleId, joinedIds));
+        }
+        return postFeed(query, cursor, requestedLimit);
     }
 
     public CursorPage<CircleDto> circles(String category, String cursor, int requestedLimit) {
@@ -401,6 +478,17 @@ public class DalanbookApiService {
         if (!RATIOS.contains(request.ratio()) || request.images().stream().anyMatch(image -> !RATIOS.contains(image.ratio()))) {
             throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_IMAGE_RATIO", "图片比例无效");
         }
+        List<StoredImage> storedImages = request.images().stream().map(image -> {
+            Long ossId = parseOssId(image.ossId());
+            SysOssVo oss = ossService.getById(ossId);
+            if (oss == null) {
+                throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "IMAGE_NOT_FOUND", "上传图片不存在");
+            }
+            if (oss.getCreateBy() != null && !Objects.equals(oss.getCreateBy(), userId)) {
+                throw new DalanApiException(HttpStatus.FORBIDDEN, "IMAGE_NOT_OWNED", "不能使用其他用户上传的图片");
+            }
+            return new StoredImage(String.valueOf(ossId), null, image.ratio());
+        }).toList();
         Instant now = Instant.now();
         DalanPostV1 post = new DalanPostV1();
         post.setId("p_" + compactId());
@@ -408,8 +496,8 @@ public class DalanbookApiService {
         post.setCircleId(circle.getId());
         post.setTitle(request.title().trim());
         post.setContent(request.content().trim());
-        post.setImages(JsonUtils.toJsonString(request.images()));
-        post.setCover(request.images().get(0).url());
+        post.setImages(JsonUtils.toJsonString(storedImages));
+        post.setCover("");
         post.setRatio(request.ratio());
         post.setTag(request.tag());
         post.setVisibility("circle".equals(request.visibility()) ? "circle" : "public");
@@ -629,8 +717,7 @@ public class DalanbookApiService {
     }
 
     public String uploadedUrl(Long ossId) {
-        SysOssVo oss = ossService.getById(ossId);
-        return oss == null ? null : oss.getUrl();
+        return ossService.getAccessUrl(ossId);
     }
 
     private FeedContext context(List<DalanPostV1> posts) {
@@ -654,7 +741,7 @@ public class DalanbookApiService {
         DalanCircleV1 circle = context.circles().get(post.getCircleId());
         SysUser user = context.users().get(post.getAuthorId());
         DalanPostStats stats = context.stats().get(post.getId());
-        return new FeedItem(post.getId(), new Cover(post.getCover(), post.getRatio(), null), post.getTag(), post.getTitle(),
+        return new FeedItem(post.getId(), new Cover(coverUrl(post), post.getRatio(), null), post.getTag(), post.getTitle(),
             new CircleBrief(post.getCircleId(), circle == null ? "" : circle.getName()), author(post.getAuthorId(), user),
             new Useful(stats == null ? 0 : nvl(stats.getUsefulCount()), context.useful().contains(post.getId())), post.getCreatedAt());
     }
@@ -663,7 +750,9 @@ public class DalanbookApiService {
         DalanCircleV1 circle = context.circles().get(post.getCircleId());
         DalanPostStats stats = context.stats().get(post.getId());
         boolean useful = context.useful().contains(post.getId());
-        return new PostDto(post.getId(), post.getTitle(), post.getContent(), images(post.getImages()), post.getCover(),
+        List<ImageDto> postImages = images(post.getImages());
+        String cover = postImages.isEmpty() ? post.getCover() : postImages.get(0).url();
+        return new PostDto(post.getId(), post.getTitle(), post.getContent(), postImages, cover,
             post.getRatio(), post.getTag(), postTopics(post.getId()), new CircleBrief(post.getCircleId(), circle == null ? "" : circle.getName()),
             author(post.getAuthorId(), context.users().get(post.getAuthorId())), stats == null ? 0 : nvl(stats.getUsefulCount()),
             stats == null ? 0 : nvl(stats.getLikeCount()), stats == null ? 0 : nvl(stats.getCommentCount()),
@@ -754,8 +843,7 @@ public class DalanbookApiService {
     private String avatarUrl(Long ossId) {
         if (ossId == null) return null;
         try {
-            SysOssVo oss = ossService.getById(ossId);
-            return oss == null ? null : oss.getUrl();
+            return ossService.getAccessUrl(ossId);
         } catch (RuntimeException ignored) {
             return null;
         }
@@ -782,6 +870,14 @@ public class DalanbookApiService {
         return currentUserId().map(userId -> memberMapper.selectList(new LambdaQueryWrapper<DalanCircleMember>()
                 .select(DalanCircleMember::getCircleId).eq(DalanCircleMember::getUserId, userId)).stream()
             .map(DalanCircleMember::getCircleId).collect(Collectors.toSet())).orElse(Set.of());
+    }
+
+    private Set<Long> followedUserIds(Long followerId) {
+        return followMapper.selectList(new LambdaQueryWrapper<DalanFollow>()
+                .select(DalanFollow::getFolloweeId)
+                .eq(DalanFollow::getFollowerId, followerId)).stream()
+            .map(DalanFollow::getFolloweeId)
+            .collect(Collectors.toSet());
     }
 
     private boolean isMember(String circleId, Long userId) {
@@ -874,7 +970,44 @@ public class DalanbookApiService {
 
     private List<ImageDto> images(String json) {
         if (json == null || json.isBlank()) return List.of();
-        return JsonUtils.parseArray(json, ImageDto.class);
+        return JsonUtils.parseArray(json, StoredImage.class).stream()
+            .map(image -> new ImageDto(image.ossId(), assetUrl(parseNullableOssId(image.ossId()), image.url()), image.ratio()))
+            .toList();
+    }
+
+    private String coverUrl(DalanPostV1 post) {
+        if (post.getImages() == null || post.getImages().isBlank()) return post.getCover();
+        List<StoredImage> storedImages = JsonUtils.parseArray(post.getImages(), StoredImage.class);
+        if (storedImages.isEmpty()) return post.getCover();
+        StoredImage first = storedImages.get(0);
+        return assetUrl(parseNullableOssId(first.ossId()), first.url() == null ? post.getCover() : first.url());
+    }
+
+    private String assetUrl(Long ossId, String legacyUrl) {
+        if (ossId == null) return legacyUrl;
+        try {
+            String url = ossService.getAccessUrl(ossId);
+            return url == null ? legacyUrl : url;
+        } catch (RuntimeException ignored) {
+            return legacyUrl;
+        }
+    }
+
+    private Long parseOssId(String value) {
+        try {
+            return Long.valueOf(value);
+        } catch (NumberFormatException exception) {
+            throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_OSS_ID", "图片标识无效");
+        }
+    }
+
+    private Long parseNullableOssId(String value) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            return Long.valueOf(value);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     private List<String> strings(String json) {
@@ -933,6 +1066,28 @@ public class DalanbookApiService {
         notificationMapper.insert(notification);
     }
 
+    private void changeFollowCounts(Long followerId, Long followeeId, int delta) {
+        profileMapper.update(null, new LambdaUpdateWrapper<DalanUserProfile>()
+            .eq(DalanUserProfile::getUserId, followerId)
+            .setSql("following_count = GREATEST(0, following_count + (" + delta + "))"));
+        profileMapper.update(null, new LambdaUpdateWrapper<DalanUserProfile>()
+            .eq(DalanUserProfile::getUserId, followeeId)
+            .setSql("follower_count = GREATEST(0, follower_count + (" + delta + "))"));
+    }
+
+    private Map<String, Object> notificationActor(Long userId) {
+        SysUser user = userMapper.selectById(userId);
+        Author author = author(userId, user);
+        Map<String, Object> actor = new HashMap<>();
+        actor.put("id", author.id());
+        actor.put("name", author.name());
+        actor.put("avatarColor", author.avatarColor());
+        if (author.avatarUrl() != null) {
+            actor.put("avatarUrl", author.avatarUrl());
+        }
+        return actor;
+    }
+
     private long nvl(Long value) { return value == null ? 0 : value; }
     private MyProfileDto toMyProfile(SysUser user, DalanUserProfile profile) {
         DalanUserDevice latest = deviceMapper.selectOne(new LambdaQueryWrapper<DalanUserDevice>()
@@ -958,12 +1113,14 @@ public class DalanbookApiService {
         String[] colors = {"#245BDB", "#1F9D6A", "#0D1B33", "#D88B16", "#D94B4B", "#5E6B7F"};
         return colors[Math.floorMod(id == null ? 0 : id.hashCode(), colors.length)];
     }
-    private String sex(String value) { return "0".equals(value) ? "male" : "1".equals(value) ? "female" : "unknown"; }
+    private String sex(String value) { return "0".equals(value) ? "male" : "1".equals(value) ? "female" : "3".equals(value) ? "other" : "unknown"; }
+    private String sexCode(String value) { return "male".equals(value) ? "0" : "female".equals(value) ? "1" : "other".equals(value) ? "3" : "2"; }
     private String membersText(long count) {
         return count >= 10000 ? String.format(Locale.ROOT, "%.1f 万人正在讨论", count / 10000.0) : count + " 人正在讨论";
     }
 
     private record CursorValue(Instant createdAt, String id) {}
+    private record StoredImage(String ossId, String url, String ratio) {}
     private record FeedContext(Map<String, DalanCircleV1> circles, Map<Long, SysUser> users,
                                Map<String, DalanPostStats> stats, Set<String> useful,
                                Set<String> liked, Set<String> favorited) {}

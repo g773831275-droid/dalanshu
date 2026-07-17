@@ -22,6 +22,7 @@ import org.dromara.common.core.utils.*;
 import org.dromara.common.mybatis.core.page.PageQuery;
 import org.dromara.common.mybatis.core.page.TableDataInfo;
 import org.dromara.common.satoken.utils.LoginHelper;
+import org.dromara.system.domain.SysRole;
 import org.dromara.system.domain.SysUser;
 import org.dromara.system.domain.SysUserPost;
 import org.dromara.system.domain.SysUserRole;
@@ -42,6 +43,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
+import java.time.Instant;
+import java.util.stream.Stream;
 
 /**
  * 用户 业务层处理
@@ -52,6 +55,8 @@ import java.util.*;
 @RequiredArgsConstructor
 @Service
 public class SysUserServiceImpl implements ISysUserService, UserService {
+
+    private static final String DEFAULT_REGISTER_ROLE_KEY = "normal_user";
 
     private final SysUserMapper baseMapper;
     private final SysDeptMapper deptMapper;
@@ -65,11 +70,11 @@ public class SysUserServiceImpl implements ISysUserService, UserService {
     @Override
     public TableDataInfo<SysUserVo> selectPageUserList(SysUserBo user, PageQuery pageQuery) {
         Page<SysUserVo> page = baseMapper.selectPageUserList(pageQuery.build(), this.buildQueryWrapper(user));
-        enrichCommunityInsights(page.getRecords());
+        enrichUserProfileData(page.getRecords());
         return TableDataInfo.build(page);
     }
 
-    private void enrichCommunityInsights(List<SysUserVo> users) {
+    private void enrichUserProfileData(List<SysUserVo> users) {
         if (CollUtil.isEmpty(users)) return;
         List<Long> userIds = users.stream().map(SysUserVo::getUserId).toList();
         Map<Long, DalanUserProfile> profiles = dalanUserProfileMapper.selectList(
@@ -82,18 +87,45 @@ public class SysUserServiceImpl implements ISysUserService, UserService {
         for (SysUserVo user : users) {
             DalanUserProfile profile = profiles.get(user.getUserId());
             if (profile != null) {
-                user.setAgeRange(profile.getAgeRange());
-                user.setLocation(profile.getLocation());
+                applyUserProfile(user, profile);
             }
             DalanUserDevice device = devices.get(user.getUserId());
             if (device != null) {
-                user.setDeviceType(device.getDeviceType());
-                user.setDeviceBrand(device.getBrand());
-                user.setDeviceModel(device.getModel());
-                user.setDeviceOs(device.getOs());
-                user.setDeviceBrowser(device.getBrowser());
+                applyLatestDevice(user, device);
             }
         }
+    }
+
+    private void applyUserProfile(SysUserVo user, DalanUserProfile profile) {
+        user.setBio(profile.getBio());
+        user.setSex(toSystemSex(profile.getGender()));
+        user.setAgeRange(profile.getAgeRange());
+        user.setLocation(profile.getLocation());
+        user.setProvinceCode(profile.getProvinceCode());
+        user.setProvinceName(profile.getProvinceName());
+        user.setCityCode(profile.getCityCode());
+        user.setCityName(profile.getCityName());
+        user.setFollowerCount(profile.getFollowerCount());
+        user.setFollowingCount(profile.getFollowingCount());
+        user.setPostCount(profile.getPostCount());
+    }
+
+    private void applyLatestDevice(SysUserVo user, DalanUserDevice device) {
+        user.setDeviceSource(device.getSource());
+        user.setDeviceType(device.getDeviceType());
+        user.setDeviceBrand(device.getBrand());
+        user.setDeviceModel(device.getModel());
+        user.setDeviceOs(device.getOs());
+        user.setDeviceOsVersion(device.getOsVersion());
+        user.setDeviceBrowser(device.getBrowser());
+        user.setDeviceBrowserVersion(device.getBrowserVersion());
+        user.setDeviceScreenWidth(device.getScreenWidth());
+        user.setDeviceScreenHeight(device.getScreenHeight());
+        user.setDevicePixelRatio(device.getPixelRatio());
+        user.setDeviceLanguage(device.getLanguage());
+        user.setDeviceTimezone(device.getTimezone());
+        user.setDeviceFirstSeenAt(device.getFirstSeenAt());
+        user.setDeviceLastSeenAt(device.getLastSeenAt());
     }
 
     /**
@@ -128,6 +160,7 @@ public class SysUserServiceImpl implements ISysUserService, UserService {
             .in(StringUtils.isNotBlank(user.getUserIds()), SysUser::getUserId, StringUtils.splitTo(user.getUserIds(), Convert::toLong))
             .like(StringUtils.isNotBlank(user.getUserName()), SysUser::getUserName, user.getUserName())
             .like(StringUtils.isNotBlank(user.getNickName()), SysUser::getNickName, user.getNickName())
+            .like(StringUtils.isNotBlank(user.getEmail()), SysUser::getEmail, user.getEmail())
             .eq(StringUtils.isNotBlank(user.getStatus()), SysUser::getStatus, user.getStatus())
             .like(StringUtils.isNotBlank(user.getPhonenumber()), SysUser::getPhonenumber, user.getPhonenumber())
             .between(params.get("beginTime") != null && params.get("endTime") != null,
@@ -216,6 +249,7 @@ public class SysUserServiceImpl implements ISysUserService, UserService {
             return user;
         }
         user.setRoles(roleMapper.selectRolesByUserId(user.getUserId()));
+        enrichUserProfileData(List.of(user));
         return user;
     }
 
@@ -362,12 +396,29 @@ public class SysUserServiceImpl implements ISysUserService, UserService {
      * @return 结果
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public boolean registerUser(SysUserBo user, String tenantId) {
+        SysRole defaultRole = roleMapper.selectOne(new LambdaQueryWrapper<SysRole>()
+            .eq(SysRole::getTenantId, tenantId)
+            .eq(SysRole::getRoleKey, DEFAULT_REGISTER_ROLE_KEY)
+            .eq(SysRole::getStatus, SystemConstants.NORMAL));
+        if (defaultRole == null) {
+            throw new ServiceException("普通用户角色未配置");
+        }
         user.setCreateBy(0L);
         user.setUpdateBy(0L);
         SysUser sysUser = MapstructUtils.convert(user, SysUser.class);
         sysUser.setTenantId(tenantId);
-        return baseMapper.insert(sysUser) > 0;
+        if (baseMapper.insert(sysUser) < 1) {
+            return false;
+        }
+        SysUserRole userRole = new SysUserRole();
+        userRole.setUserId(sysUser.getUserId());
+        userRole.setRoleId(defaultRole.getRoleId());
+        if (userRoleMapper.insert(userRole) < 1) {
+            throw new ServiceException("分配普通用户角色失败");
+        }
+        return true;
     }
 
     /**
@@ -390,7 +441,51 @@ public class SysUserServiceImpl implements ISysUserService, UserService {
         if (flag < 1) {
             throw new ServiceException("修改用户{}信息失败", user.getUserName());
         }
+        updateDalanUserProfile(user);
         return flag;
+    }
+
+    private void updateDalanUserProfile(SysUserBo user) {
+        boolean hasProfileFields = Stream.of(user.getBio(), user.getAgeRange(),
+                user.getProvinceCode(), user.getProvinceName(), user.getCityCode(), user.getCityName())
+            .anyMatch(Objects::nonNull);
+        if (!hasProfileFields) {
+            return;
+        }
+        DalanUserProfile profile = dalanUserProfileMapper.selectById(user.getUserId());
+        boolean insert = profile == null;
+        if (insert) {
+            profile = new DalanUserProfile();
+            profile.setUserId(user.getUserId());
+            profile.setFollowerCount(0L);
+            profile.setFollowingCount(0L);
+            profile.setPostCount(0L);
+            profile.setCreatedAt(Instant.now());
+        }
+        profile.setBio(StringUtils.defaultString(user.getBio()));
+        profile.setGender(toProfileGender(user.getSex()));
+        profile.setAgeRange(StringUtils.defaultIfBlank(user.getAgeRange(), "unknown"));
+        profile.setProvinceCode(StringUtils.defaultString(user.getProvinceCode()));
+        profile.setProvinceName(StringUtils.defaultString(user.getProvinceName()));
+        profile.setCityCode(StringUtils.defaultString(user.getCityCode()));
+        profile.setCityName(StringUtils.defaultString(user.getCityName()));
+        String province = profile.getProvinceName();
+        String city = profile.getCityName();
+        profile.setLocation(StringUtils.isBlank(province) ? city : StringUtils.isBlank(city) ? province : province + " · " + city);
+        profile.setUpdatedAt(Instant.now());
+        if (insert) {
+            dalanUserProfileMapper.insert(profile);
+        } else {
+            dalanUserProfileMapper.updateById(profile);
+        }
+    }
+
+    private String toSystemSex(String gender) {
+        return "male".equals(gender) ? "0" : "female".equals(gender) ? "1" : "other".equals(gender) ? "3" : "2";
+    }
+
+    private String toProfileGender(String sex) {
+        return "0".equals(sex) ? "male" : "1".equals(sex) ? "female" : "3".equals(sex) ? "other" : "unknown";
     }
 
     /**

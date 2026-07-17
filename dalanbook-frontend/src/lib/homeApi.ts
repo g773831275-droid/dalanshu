@@ -6,6 +6,7 @@ import {
   getMockHomeFeed,
   getMockHomeLeftNav,
 } from "@/lib/homeApi.mock";
+import type { HomeChannel } from "@/lib/homeUi";
 
 export type HomeCategoryType = "system" | "topic";
 export type HomeCoverRatio = "1/1" | "4/5" | "3/4" | "4/3" | "16/9";
@@ -90,6 +91,7 @@ export type HomeCircleRecommendResponse = {
 
 export type GetHomeFeedInput = {
   categoryId: string;
+  channel?: HomeChannel;
   cursor?: string | null;
   limit?: number;
 };
@@ -101,6 +103,7 @@ export function getHomeCategories(): Promise<HomeCategoriesResponse> {
 
 export function getHomeFeed({
   categoryId,
+  channel = "recommend",
   cursor,
   limit = 20,
 }: GetHomeFeedInput): Promise<HomeFeedResponse> {
@@ -109,6 +112,7 @@ export function getHomeFeed({
   }
   const params = new URLSearchParams({
     categoryId,
+    channel,
     limit: String(limit),
   });
   if (cursor) params.set("cursor", cursor);

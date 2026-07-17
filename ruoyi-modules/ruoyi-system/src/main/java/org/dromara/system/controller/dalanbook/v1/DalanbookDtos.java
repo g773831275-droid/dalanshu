@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.Pattern;
 
 import java.time.Instant;
 import java.util.List;
@@ -38,6 +39,7 @@ public final class DalanbookDtos {
     public record UserDto(String id, String nickname, String avatar, String bio, String gender,
                           String location, long followerCount, long followingCount, long postCount,
                           boolean isFollowing, Instant createdAt) {}
+    public record FollowRequest(@NotNull Boolean following) {}
     public record MeSummary(UserDto user, long unreadCount) {}
     public record DeviceDto(String deviceType, String brand, String model, String os, String osVersion,
                             String browser, String browserVersion, Instant lastSeenAt) {}
@@ -71,7 +73,9 @@ public final class DalanbookDtos {
         @Size(max = 80) String timezone
     ) {}
 
-    public record ImageDto(@NotBlank String url, @NotBlank String ratio) {}
+    public record ImageDto(String ossId, @NotBlank String url, @NotBlank String ratio) {}
+    public record ImageInput(@NotBlank @Pattern(regexp = "^[0-9]+$") String ossId,
+                             @NotBlank String ratio) {}
     public record PostDto(String id, String title, String content, List<ImageDto> images, String cover,
                           String ratio, String tag, List<TopicDto> topics, CircleBrief circle, Author author, long usefulCount,
                           long likeCount, long commentCount, long favoriteCount, boolean isUseful,
@@ -82,7 +86,7 @@ public final class DalanbookDtos {
         @NotBlank @Size(max = 120) String title,
         @NotBlank @Size(max = 10000) String content,
         @NotBlank String circleId,
-        @NotEmpty @Size(max = 9) List<@Valid ImageDto> images,
+        @NotNull @Size(max = 9) List<@Valid ImageInput> images,
         @NotBlank String tag,
         @NotBlank String ratio,
         @Size(max = 5) List<@NotBlank @Size(max = 20) String> topics,
@@ -123,5 +127,5 @@ public final class DalanbookDtos {
     public record NotificationDto(String id, String type, Map<String, Object> payload,
                                   Instant readAt, Instant createdAt) {}
     public record UnreadCountResponse(long count) {}
-    public record UploadResponse(String url, long ossId, String contentType, long size) {}
+    public record UploadResponse(String url, String ossId, String contentType, long size) {}
 }

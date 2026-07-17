@@ -10,20 +10,32 @@
 
 ## 2. 必需配置
 
-从 TOS 控制台确认 Bucket 所在 Region 和 **S3 Endpoint**。注意必须使用包含 `tos-s3-` 的 S3 Endpoint，不能填写原生 TOS SDK Endpoint。
+当前项目使用华东2（上海）的私有 FNS 扁平桶。注意必须使用包含 `tos-s3-` 的 S3 Endpoint，不能填写原生 TOS SDK Endpoint。
 
-以北京为例：
+项目配置为：
 
 ```bash
 export VOLCENGINE_ACCESS_KEY_ID='新建的 AccessKey ID'
 export VOLCENGINE_ACCESS_KEY_SECRET='新建的 Secret AccessKey'
-export TOS_BUCKET_NAME='Bucket 名称'
-export TOS_REGION='cn-beijing'
-export TOS_S3_ENDPOINT='tos-s3-cn-beijing.volces.com'
+export TOS_BUCKET_NAME='file-system'
+export TOS_REGION='cn-shanghai'
+export TOS_S3_ENDPOINT='tos-s3-cn-shanghai.volces.com'
 export TOS_PREFIX='dalanbook'
 ```
 
-同地域火山引擎服务器可按 TOS 控制台说明改用内网 S3 Endpoint，例如北京区域通常为 `tos-s3-cn-beijing.ivolces.com`。
+本机 `dev` Profile 会自动读取 `${user.home}/.config/dalanshu/tos.properties`。该文件位于 Git 仓库外，权限必须为 `600`；从 IDEA 启动时无需另外配置环境变量。
+
+可从模板创建本机私密配置：
+
+```bash
+mkdir -p ~/.config/dalanshu
+cp script/env/tos.properties.example ~/.config/dalanshu/tos.properties
+chmod 600 ~/.config/dalanshu/tos.properties
+```
+
+随后填写其中的 `VOLCENGINE_ACCESS_KEY_ID` 和 `VOLCENGINE_ACCESS_KEY_SECRET`，并重启后端服务。
+
+如果后端部署在火山引擎上海地域的同一 VPC，可按 TOS 控制台说明改用内网 S3 Endpoint：`tos-s3-cn-shanghai.ivolces.com`。当前后端若部署在其他云厂商，应使用上述外网 Endpoint。
 
 可选配置：
 
@@ -50,11 +62,11 @@ script/sql/update/dalanshu_volcengine_tos.sql
 | configKey | `volcengine` |
 | accessKey | `${VOLCENGINE_ACCESS_KEY_ID}` |
 | secretKey | `${VOLCENGINE_ACCESS_KEY_SECRET}` |
-| bucketName | `${TOS_BUCKET_NAME}` |
+| bucketName | `file-system` |
 | prefix | `dalanbook` 或 `${TOS_PREFIX}` |
-| endpoint | `${TOS_S3_ENDPOINT}` |
+| endpoint | `tos-s3-cn-shanghai.volces.com` |
 | isHttps | `Y` |
-| region | `${TOS_REGION}` |
+| region | `cn-shanghai` |
 | accessPolicy | 私有桶 `0` |
 
 ## 4. 验证接口

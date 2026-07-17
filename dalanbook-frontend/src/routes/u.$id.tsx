@@ -1,10 +1,9 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createFileRoute, Link, notFound } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import {
     ArrowLeft,
     CalendarDays,
-    Loader2,
     MapPin,
     MessageCircle,
     Pencil,
@@ -16,202 +15,178 @@ import { TopNav } from "@/components/home/TopNav";
 import { MobileTopBar } from "@/components/home/MobileTopBar";
 import { MobileBottomNav } from "@/components/home/MobileBottomNav";
 import { PostCard } from "@/components/home/PostCard";
-import { ProfileEditorDialog } from "@/components/profile/ProfileEditorDialog";
 import cover from "@/assets/cover-portrait-pm.jpg";
+import { ProfileEditorDialog } from "@/components/profile/ProfileEditorDialog";
 import { ageRangeLabel } from "@/data/regions";
-import { AuthApiError, getMyProfile, reportWebDevice } from "@/lib/authApi";
+import { AuthApiError, getMyProfile, reportWebDevice, type MyProfile } from "@/lib/authApi";
 import { authStore, useAuthUser } from "@/lib/authStore";
+import { getMyCircles } from "@/lib/dalanbookApi";
 import {
-    getFollowedTopics,
-    getProfileCircles,
-    getProfilePostPage,
-    getProfileUser,
-    setProfileFollowing,
-    type ProfileTab,
-    type ProfileUser,
-} from "@/lib/profileApi";
-
-const PAGE_SIZE = 12;
+    getMyPostPage,
+    getUserPostPage,
+    getUserProfile,
+    setUserFollowing,
+    type CommunityUser,
+} from "@/lib/userApi";
 
 export const Route = createFileRoute("/u/$id")({
-    head: () => ({
-        meta: [
-            { title: "个人主页 · 大蓝书" },
-            { name: "description", content: "查看用户资料、公开笔记和社区动态。" },
-        ],
-    }),
+    loader: async ({ params }) => {
+        if (params.id === "me" && typeof window === "undefined") return { user: null };
+        try {
+            return { user: await getUserProfile(params.id) };
+        } catch (error) {
+            if (error instanceof AuthApiError && Number(error.code) === 404) throw notFound();
+            throw error;
+        }
+    },
+    head: ({ loaderData }) => {
+        if (!loaderData) {
+            return { meta: [{ title: "用户 · 大蓝书" }, { name: "robots", content: "noindex" }] };
+        }
+        const { user } = loaderData;
+        if (!user) return { meta: [{ title: "我的主页 · 大蓝书" }] };
+        return {
+            meta: [
+                { title: `${user.nickname} · 大蓝书` },
+                { name: "description", content: user.bio },
+                { property: "og:title", content: `${user.nickname} · 大蓝书` },
+                { property: "og:description", content: user.bio },
+            ],
+        };
+    },
+    notFoundComponent: () => (
+        <div className="flex min-h-screen items-center justify-center text-text-secondary">
+            用户不存在
+        </div>
+    ),
     component: UserProfile,
 });
 
-function formatCount(value: number): string {
-    if (value < 1000) return String(value);
-    if (value < 10_000) return `${Number((value / 1000).toFixed(1))}k`;
-    return `${Number((value / 10_000).toFixed(1))}万`;
+type TabKey = "posts" | "saved" | "liked";
+
+function formatCount(value: number) {
+    return new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 }).format(
+        value,
+    );
 }
 
-function formatJoinedAt(value: string | null): string {
-    if (!value) return "未知时间";
-    const timestamp = new Date(value).getTime();
-    if (!Number.isFinite(timestamp)) return "未知时间";
-    return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "long" }).format(timestamp);
+function joinedAt(value: string | null) {
+    if (!value) return "暂未记录";
+    return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "long" }).format(
+        new Date(value),
+    );
 }
 
-function ProfilePageState({
-    message,
-    loading = false,
-    action,
-}: {
-    message: string;
-    loading?: boolean;
-    action?: { label: string; onClick: () => void };
-}) {
+function UserAvatar({ user, className }: { user: CommunityUser; className: string }) {
+    if (user.avatar)
+        return <img src={user.avatar} alt="" className={`${className} object-cover`} />;
     return (
-        <div className="min-h-screen bg-background">
-            <div className="hidden md:block">
-                <TopNav />
-            </div>
-            <MobileTopBar showChannels={false} />
-            <div className="flex min-h-[60vh] flex-col items-center justify-center px-4 text-center text-[13px] text-text-secondary">
-                <div className="flex items-center">
-                    {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    {message}
-                </div>
-                {action ? (
-                    <button
-                        type="button"
-                        onClick={action.onClick}
-                        className="mt-4 rounded-[10px] bg-foreground px-4 py-2 text-[13px] font-medium text-white"
-                    >
-                        {action.label}
-                    </button>
-                ) : null}
-            </div>
-            <MobileBottomNav />
-        </div>
+        <span
+            className={`${className} flex items-center justify-center bg-[#245BDB] font-semibold text-white`}
+            aria-hidden
+        >
+            {user.nickname.slice(0, 1)}
+        </span>
     );
 }
 
 function UserProfile() {
-    const { id: routeId } = Route.useParams();
+    const { user } = Route.useLoaderData();
+    return user ? <UserProfileContent loadedUser={user} /> : <CurrentUserProfile />;
+}
+
+function CurrentUserProfile() {
+    const { data: user, isError } = useQuery({
+        queryKey: ["dalanbook", "me", "summary"],
+        queryFn: () => getUserProfile("me"),
+        enabled: typeof window !== "undefined",
+    });
+    if (user) return <UserProfileContent loadedUser={user} />;
+    return (
+        <div className="flex min-h-screen items-center justify-center text-[13px] text-text-tertiary">
+            {isError ? "请登录后查看个人主页。" : "正在加载个人主页…"}
+        </div>
+    );
+}
+
+function UserProfileContent({ loadedUser }: { loadedUser: CommunityUser }) {
+    const { id: routeUserId } = Route.useParams();
     const authUser = useAuthUser();
-    const queryClient = useQueryClient();
-    const isOwn = routeId === "me" || authUser?.id === routeId;
-    const resourceId = isOwn ? "me" : routeId;
-    const profileQueryKey = ["dalanbook", "profile", resourceId] as const;
-    const [tab, setTab] = useState<ProfileTab>("posts");
+    const [user, setUser] = useState(loadedUser);
+    const [tab, setTab] = useState<TabKey>("posts");
     const [editing, setEditing] = useState(false);
+    const [followUpdating, setFollowUpdating] = useState(false);
+    const isOwnProfile = routeUserId === "me" || user.id === authUser?.id;
 
+    useEffect(() => setUser(loadedUser), [loadedUser]);
     useEffect(() => {
-        if (!isOwn) setTab("posts");
-    }, [isOwn, routeId]);
-
-    useEffect(() => {
-        if (!isOwn) return;
+        if (!isOwnProfile || !authUser) return;
         void reportWebDevice().catch(() => undefined);
-    }, [isOwn]);
+    }, [authUser, isOwnProfile]);
+    useEffect(() => {
+        if (!isOwnProfile && tab !== "posts") setTab("posts");
+    }, [isOwnProfile, tab]);
 
-    const profileQuery = useQuery({
-        queryKey: profileQueryKey,
-        queryFn: () => getProfileUser(resourceId),
-    });
-    const myProfileQuery = useQuery({
-        queryKey: ["dalanbook", "profile", "editable"],
+    const { data: myProfile } = useQuery({
+        queryKey: ["dalanbook", "me", "profile"],
         queryFn: getMyProfile,
-        enabled: isOwn && !!profileQuery.data,
+        enabled: isOwnProfile && !!authUser,
     });
-    const circlesQuery = useQuery({
-        queryKey: ["dalanbook", "profile", "circles"],
-        queryFn: getProfileCircles,
-        enabled: isOwn && !!profileQuery.data,
+    const {
+        data: postPage,
+        isLoading: postsLoading,
+        isError: postsError,
+    } = useQuery({
+        queryKey: ["dalanbook", "user", "posts", user.id, isOwnProfile ? tab : "posts"],
+        queryFn: () =>
+            isOwnProfile
+                ? getMyPostPage(
+                      tab === "saved" ? "favorite" : tab === "liked" ? "liked" : "published",
+                  )
+                : getUserPostPage(user.id),
+        enabled: !isOwnProfile || !!authUser,
     });
-    const topicsQuery = useQuery({
-        queryKey: ["dalanbook", "profile", "topics"],
-        queryFn: () => getFollowedTopics(12),
-        enabled: isOwn && !!profileQuery.data,
-    });
-    const postQuery = useInfiniteQuery({
-        queryKey: ["dalanbook", "profile", resourceId, "posts", tab],
-        queryFn: ({ pageParam }) =>
-            getProfilePostPage({ id: resourceId, tab, cursor: pageParam, limit: PAGE_SIZE }),
-        initialPageParam: null as string | null,
-        getNextPageParam: (lastPage) =>
-            lastPage.hasMore ? (lastPage.nextCursor ?? undefined) : undefined,
-        enabled: !!profileQuery.data && (isOwn || tab === "posts"),
-    });
-    const followMutation = useMutation({
-        mutationFn: (following: boolean) => setProfileFollowing(routeId, following),
-        onSuccess: (result) => {
-            queryClient.setQueryData<ProfileUser>(profileQueryKey, (current) =>
-                current
-                    ? {
-                          ...current,
-                          isFollowing: result.following,
-                          followerCount: result.followerCount,
-                      }
-                    : current,
-            );
-        },
+    const { data: joinedCircles = [] } = useQuery({
+        queryKey: ["dalanbook", "me", "circles"],
+        queryFn: () => getMyCircles(),
+        enabled: isOwnProfile && !!authUser,
     });
 
-    if (profileQuery.isLoading) return <ProfilePageState loading message="正在加载个人主页…" />;
-    if (profileQuery.error || !profileQuery.data) {
-        const unauthorized =
-            profileQuery.error instanceof AuthApiError && Number(profileQuery.error.code) === 401;
-        if (routeId === "me" && unauthorized) {
-            return (
-                <ProfilePageState
-                    message="登录后才能查看个人主页"
-                    action={{
-                        label: "登录 / 注册",
-                        onClick: () =>
-                            authStore.openAuth({
-                                tab: "login",
-                                redirect: "/u/me",
-                                action: "查看个人主页",
-                            }),
-                    }}
-                />
-            );
-        }
-        return <ProfilePageState message="用户不存在或暂时无法访问" />;
-    }
-
-    const user = profileQuery.data;
-    const myProfile = myProfileQuery.data;
-    const joinedCircles = circlesQuery.data ?? [];
-    const followedTopics = topicsQuery.data ?? [];
-    const posts = postQuery.data?.pages.flatMap((page) => page.items) ?? [];
-    const displayName = myProfile?.nickname ?? user.nickname;
-    const displayBio = (myProfile?.bio ?? user.bio) || "还没有填写个人简介。";
-    const displayLocation = (myProfile?.location ?? user.location) || "暂未填写地域";
-    const tabs: Array<{ key: ProfileTab; label: string }> = isOwn
-        ? [
+    const displayName = user.nickname;
+    const displayBio = user.bio || "还没有填写个人简介。";
+    const displayLocation = user.location || "暂未填写地域";
+    const tabs = isOwnProfile
+        ? ([
               { key: "posts", label: "笔记" },
               { key: "saved", label: "收藏" },
               { key: "liked", label: "点赞" },
-          ]
-        : [{ key: "posts", label: "笔记" }];
+          ] as const)
+        : ([{ key: "posts", label: "笔记" }] as const);
 
-    function toggleFollowing() {
+    const toggleFollow = () => {
         if (!authUser) {
-            authStore.openAuth({
-                tab: "login",
-                redirect: `/u/${routeId}`,
-                action: "关注用户",
-            });
+            authStore.openAuth({ tab: "login", action: `关注 ${user.nickname}` });
             return;
         }
-        followMutation.mutate(!user.isFollowing);
-    }
-
-    function shareProfile() {
-        if (typeof window === "undefined") return;
-        if (navigator.share) {
-            void navigator.share({ title: `${displayName} · 大蓝书`, url: window.location.href });
-            return;
-        }
-        void navigator.clipboard?.writeText(window.location.href);
-    }
+        if (followUpdating) return;
+        const next = !user.isFollowing;
+        setUser((current) => ({
+            ...current,
+            isFollowing: next,
+            followerCount: current.followerCount + (next ? 1 : -1),
+        }));
+        setFollowUpdating(true);
+        void setUserFollowing(user.id, next)
+            .then(setUser)
+            .catch(() => {
+                setUser((current) => ({
+                    ...current,
+                    isFollowing: !next,
+                    followerCount: current.followerCount + (next ? -1 : 1),
+                }));
+            })
+            .finally(() => setFollowUpdating(false));
+    };
 
     return (
         <div className="min-h-screen bg-background">
@@ -238,21 +213,10 @@ function UserProfile() {
                 <section className="glass-elevated rounded-[20px] border border-[color:var(--border)] p-5 md:p-6">
                     <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                         <div className="flex items-start gap-4">
-                            {user.avatarUrl ? (
-                                <img
-                                    src={user.avatarUrl}
-                                    alt=""
-                                    className="h-20 w-20 shrink-0 rounded-full object-cover shadow-[var(--shadow-subtle)]"
-                                />
-                            ) : (
-                                <span
-                                    className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full text-[26px] font-semibold text-white shadow-[var(--shadow-subtle)]"
-                                    style={{ backgroundColor: user.avatarColor }}
-                                    aria-hidden
-                                >
-                                    {displayName.slice(0, 1)}
-                                </span>
-                            )}
+                            <UserAvatar
+                                user={{ ...user, nickname: displayName }}
+                                className="h-20 w-20 shrink-0 rounded-full text-[26px] shadow-[var(--shadow-subtle)]"
+                            />
                             <div className="min-w-0">
                                 <h1 className="text-[22px] font-semibold tracking-[-0.02em] text-foreground md:text-[26px]">
                                     {displayName}
@@ -265,24 +229,23 @@ function UserProfile() {
                                         <MapPin className="h-3.5 w-3.5" strokeWidth={1.75} />
                                         {displayLocation}
                                     </span>
-                                    {myProfile && myProfile.ageRange !== "unknown" ? (
+                                    {myProfile && myProfile.ageRange !== "unknown" && (
                                         <span>{ageRangeLabel(myProfile.ageRange)}</span>
-                                    ) : null}
+                                    )}
                                     <span className="inline-flex items-center gap-1">
                                         <CalendarDays className="h-3.5 w-3.5" strokeWidth={1.75} />
-                                        加入于 {formatJoinedAt(user.createdAt)}
+                                        加入于 {joinedAt(user.createdAt)}
                                     </span>
                                 </div>
                             </div>
                         </div>
 
                         <div className="flex items-center gap-2 md:shrink-0">
-                            {!isOwn ? (
+                            {!isOwnProfile && (
                                 <>
                                     <button
-                                        type="button"
-                                        onClick={toggleFollowing}
-                                        disabled={followMutation.isPending}
+                                        onClick={toggleFollow}
+                                        disabled={followUpdating}
                                         className={
                                             "h-10 rounded-[12px] px-4 text-[13.5px] font-medium transition-colors disabled:opacity-60 " +
                                             (user.isFollowing
@@ -290,14 +253,9 @@ function UserProfile() {
                                                 : "bg-foreground text-white hover:bg-[color:var(--action-primary-hover)]")
                                         }
                                     >
-                                        {followMutation.isPending
-                                            ? "处理中…"
-                                            : user.isFollowing
-                                              ? "已关注"
-                                              : "+ 关注"}
+                                        {user.isFollowing ? "已关注" : "+ 关注"}
                                     </button>
                                     <button
-                                        type="button"
                                         className="flex h-10 items-center gap-1.5 rounded-[12px] border border-[color:var(--border-default)] bg-white/60 px-3 text-[13px] text-text-secondary transition-colors hover:text-foreground"
                                         aria-label="私信"
                                     >
@@ -305,9 +263,9 @@ function UserProfile() {
                                         私信
                                     </button>
                                 </>
-                            ) : (
+                            )}
+                            {isOwnProfile && (
                                 <button
-                                    type="button"
                                     onClick={() => setEditing(true)}
                                     disabled={!myProfile}
                                     className="flex h-10 items-center gap-1.5 rounded-[12px] bg-foreground px-4 text-[13.5px] font-medium text-white hover:bg-[color:var(--action-primary-hover)] disabled:opacity-60"
@@ -317,8 +275,6 @@ function UserProfile() {
                                 </button>
                             )}
                             <button
-                                type="button"
-                                onClick={shareProfile}
                                 className="flex h-10 w-10 items-center justify-center rounded-[12px] border border-[color:var(--border-default)] bg-white/60 text-text-secondary transition-colors hover:text-foreground"
                                 aria-label="分享"
                             >
@@ -347,31 +303,15 @@ function UserProfile() {
                             <dt className="mt-0.5">关注</dt>
                         </div>
                     </dl>
-
-                    {followedTopics.length > 0 ? (
-                        <div className="mt-4 flex flex-wrap gap-1.5">
-                            {followedTopics.map((topic) => (
-                                <span
-                                    key={topic.id}
-                                    className="rounded-full border border-[color:var(--border)] bg-white/50 px-2.5 py-0.5 text-[12px] text-text-secondary"
-                                >
-                                    #{topic.name}
-                                </span>
-                            ))}
-                        </div>
-                    ) : null}
                 </section>
 
-                <div
-                    className={`mt-6 grid grid-cols-1 gap-6 ${isOwn ? "lg:grid-cols-[1fr_300px]" : ""}`}
-                >
+                <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1fr_300px]">
                     <div className="min-w-0">
                         <div className="sticky top-[76px] z-10 -mx-4 mb-4 border-b border-[color:var(--border)] bg-background/80 px-4 backdrop-blur md:top-[84px] md:mx-0 md:px-0">
                             <div className="flex items-center gap-1">
                                 {tabs.map((item) => (
                                     <button
                                         key={item.key}
-                                        type="button"
                                         onClick={() => setTab(item.key)}
                                         className={
                                             "relative h-11 px-3 text-[14px] font-medium transition-colors " +
@@ -381,71 +321,50 @@ function UserProfile() {
                                         }
                                     >
                                         {item.label}
-                                        {tab === item.key ? (
+                                        {tab === item.key && (
                                             <span className="absolute inset-x-3 -bottom-px h-[2px] rounded-full bg-foreground" />
-                                        ) : null}
+                                        )}
                                     </button>
                                 ))}
                             </div>
                         </div>
 
-                        {postQuery.isLoading ? (
-                            <div className="flex items-center justify-center py-16 text-[13px] text-text-tertiary">
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        {postsLoading ? (
+                            <div className="py-16 text-center text-[13px] text-text-tertiary">
                                 正在加载内容…
                             </div>
-                        ) : postQuery.error ? (
-                            <div className="rounded-[16px] border border-dashed border-[color:var(--border-default)] py-16 text-center text-[13px] text-text-secondary">
+                        ) : postsError ? (
+                            <div className="py-16 text-center text-[13px] text-text-tertiary">
                                 内容加载失败，请稍后重试。
                             </div>
-                        ) : posts.length === 0 ? (
+                        ) : postPage?.items.length ? (
+                            <div className="columns-2 gap-2.5 md:gap-4 xl:columns-3">
+                                {postPage.items.map((post) => (
+                                    <PostCard key={post.id} post={post} />
+                                ))}
+                            </div>
+                        ) : (
                             <div className="flex flex-col items-center justify-center gap-2 rounded-[16px] border border-dashed border-[color:var(--border-default)] py-16 text-text-tertiary">
                                 <Sparkles className="h-6 w-6" strokeWidth={1.5} />
                                 <span className="text-[13px]">还没有内容</span>
                             </div>
-                        ) : (
-                            <>
-                                <div className="columns-2 gap-2.5 md:gap-4 xl:columns-3">
-                                    {posts.map((post) => (
-                                        <PostCard key={`${post.id}-${tab}`} post={post} />
-                                    ))}
-                                </div>
-                                {postQuery.hasNextPage ? (
-                                    <div className="mt-6 flex justify-center">
-                                        <button
-                                            type="button"
-                                            onClick={() => void postQuery.fetchNextPage()}
-                                            disabled={postQuery.isFetchingNextPage}
-                                            className="h-10 rounded-[12px] border border-[color:var(--border-default)] bg-white/60 px-5 text-[13px] font-medium text-text-secondary disabled:opacity-60"
-                                        >
-                                            {postQuery.isFetchingNextPage
-                                                ? "正在加载更多…"
-                                                : "加载更多"}
-                                        </button>
-                                    </div>
-                                ) : null}
-                            </>
                         )}
                     </div>
 
-                    {isOwn ? (
+                    {isOwnProfile && (
                         <aside className="hidden lg:block">
-                            <div className="sticky top-[92px] space-y-4">
+                            <div className="sticky top-[92px]">
                                 <section className="rounded-[16px] border border-[color:var(--border)] bg-white/70 p-5">
                                     <h3 className="mb-3 text-[13px] font-semibold text-foreground">
                                         加入的圈子
                                     </h3>
-                                    {circlesQuery.isLoading ? (
-                                        <p className="text-[12.5px] text-text-tertiary">
-                                            正在加载圈子…
-                                        </p>
-                                    ) : joinedCircles.length === 0 ? (
+                                    {joinedCircles.length === 0 ? (
                                         <p className="text-[12.5px] text-text-tertiary">
                                             还没有加入任何圈子
                                         </p>
                                     ) : (
                                         <ul className="space-y-3">
-                                            {joinedCircles.slice(0, 6).map((circle) => (
+                                            {joinedCircles.map((circle) => (
                                                 <li key={circle.id}>
                                                     <Link
                                                         to="/circles/$id"
@@ -477,53 +396,30 @@ function UserProfile() {
                                         </ul>
                                     )}
                                 </section>
-
-                                {followedTopics.length > 0 ? (
-                                    <section className="rounded-[16px] border border-[color:var(--border)] bg-white/70 p-5">
-                                        <h3 className="mb-3 text-[13px] font-semibold text-foreground">
-                                            关注的话题
-                                        </h3>
-                                        <div className="flex flex-wrap gap-1.5">
-                                            {followedTopics.map((topic) => (
-                                                <span
-                                                    key={topic.id}
-                                                    className="rounded-full bg-[color:var(--action-muted)] px-2.5 py-1 text-[11.5px] text-text-secondary"
-                                                >
-                                                    #{topic.name}
-                                                </span>
-                                            ))}
-                                        </div>
-                                    </section>
-                                ) : null}
                             </div>
                         </aside>
-                    ) : null}
+                    )}
                 </div>
             </main>
 
             <MobileBottomNav />
-            {myProfile ? (
+            {myProfile && (
                 <ProfileEditorDialog
                     open={editing}
                     profile={myProfile}
                     onClose={() => setEditing(false)}
-                    onSaved={(saved) => {
-                        queryClient.setQueryData(["dalanbook", "profile", "editable"], saved);
-                        queryClient.setQueryData<ProfileUser>(profileQueryKey, (current) =>
-                            current
-                                ? {
-                                      ...current,
-                                      nickname: saved.nickname,
-                                      bio: saved.bio,
-                                      location: saved.location,
-                                  }
-                                : current,
-                        );
+                    onSaved={(saved: MyProfile) => {
+                        setUser((current) => ({
+                            ...current,
+                            nickname: saved.nickname,
+                            bio: saved.bio,
+                            location: saved.location,
+                        }));
                         const current = authStore.get();
                         if (current) authStore.set({ ...current, name: saved.nickname });
                     }}
                 />
-            ) : null}
+            )}
         </div>
     );
 }

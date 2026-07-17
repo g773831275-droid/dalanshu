@@ -1,0 +1,9 @@
+# Copy this file to ~/.config/dalanshu/tos.properties, set permissions to 600,
+# and replace every placeholder. Do not commit real credentials.
+VOLCENGINE_ACCESS_KEY_ID=<Volcengine-AccessKey-ID>
+VOLCENGINE_ACCESS_KEY_SECRET=<Volcengine-Secret-AccessKey>
+TOS_BUCKET_NAME=file-system
+TOS_REGION=cn-shanghai
+TOS_S3_ENDPOINT=tos-s3-cn-shanghai.volces.com
+TOS_PREFIX=dalanbook
+# TOS_DOMAIN=<optional-custom-domain>

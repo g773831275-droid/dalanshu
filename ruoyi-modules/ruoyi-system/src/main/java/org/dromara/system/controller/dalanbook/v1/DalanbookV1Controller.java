@@ -41,9 +41,10 @@ public class DalanbookV1Controller {
     @SaIgnore
     @GetMapping("/home/feed")
     public FeedResponse feed(@RequestParam(defaultValue = "recommend") String categoryId,
+                             @RequestParam(defaultValue = "recommend") String channel,
                              @RequestParam(required = false) String cursor,
                              @RequestParam(defaultValue = "20") @Min(1) @Max(40) int limit) {
-        return service.feed(categoryId, cursor, limit);
+        return service.feed(categoryId, channel, cursor, limit);
     }
 
     @SaIgnore
@@ -93,6 +94,26 @@ public class DalanbookV1Controller {
     @GetMapping("/users/{id}")
     public UserDto user(@PathVariable Long id) {
         return service.user(id);
+    }
+
+    @PutMapping("/users/{id}/follow")
+    public UserDto follow(@PathVariable Long id, @Valid @RequestBody FollowRequest request) {
+        return service.setFollowing(id, request.following());
+    }
+
+    @SaIgnore
+    @GetMapping("/users/{id}/posts")
+    public FeedResponse userPosts(@PathVariable Long id,
+                                  @RequestParam(required = false) String cursor,
+                                  @RequestParam(defaultValue = "20") @Min(1) @Max(40) int limit) {
+        return service.userPosts(id, cursor, limit);
+    }
+
+    @GetMapping("/me/posts")
+    public FeedResponse myPosts(@RequestParam(defaultValue = "published") String type,
+                                @RequestParam(required = false) String cursor,
+                                @RequestParam(defaultValue = "20") @Min(1) @Max(40) int limit) {
+        return service.myPosts(type, cursor, limit);
     }
 
     @SaIgnore
@@ -230,6 +251,6 @@ public class DalanbookV1Controller {
         }
         SysOssVo oss = ossService.upload(file);
         return ResponseEntity.status(HttpStatus.CREATED)
-            .body(new UploadResponse(oss.getUrl(), oss.getOssId(), file.getContentType(), file.getSize()));
+            .body(new UploadResponse(oss.getUrl(), String.valueOf(oss.getOssId()), file.getContentType(), file.getSize()));
     }
 }

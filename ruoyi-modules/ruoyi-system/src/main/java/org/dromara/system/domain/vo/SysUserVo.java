@@ -12,6 +12,8 @@ import lombok.Data;
 
 import java.io.Serial;
 import java.io.Serializable;
+import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 
@@ -119,14 +121,41 @@ public class SysUserVo implements Serializable {
     @Translation(type = TransConstant.DEPT_ID_TO_NAME, mapper = "deptId")
     private String deptName;
 
-    /** 社区用户年龄段 */
+    /** 用户年龄段 */
     private String ageRange;
 
-    /** 社区用户常住地域 */
+    /** 用户个人简介 */
+    private String bio;
+
+    /** 用户常住地域 */
     private String location;
+
+    /** 用户省份编码 */
+    private String provinceCode;
+
+    /** 用户省份名称 */
+    private String provinceName;
+
+    /** 用户城市编码 */
+    private String cityCode;
+
+    /** 用户城市名称 */
+    private String cityName;
+
+    /** 粉丝数 */
+    private Long followerCount;
+
+    /** 关注数 */
+    private Long followingCount;
+
+    /** 发帖数 */
+    private Long postCount;
 
     /** 最近活跃设备类型 */
     private String deviceType;
+
+    /** 最近活跃设备来源 */
+    private String deviceSource;
 
     /** 最近活跃设备品牌 */
     private String deviceBrand;
@@ -137,8 +166,38 @@ public class SysUserVo implements Serializable {
     /** 最近活跃设备系统 */
     private String deviceOs;
 
+    /** 最近活跃设备系统版本 */
+    private String deviceOsVersion;
+
     /** 最近活跃浏览器 */
     private String deviceBrowser;
+
+    /** 最近活跃浏览器版本 */
+    private String deviceBrowserVersion;
+
+    /** 最近活跃设备屏幕宽度 */
+    private Integer deviceScreenWidth;
+
+    /** 最近活跃设备屏幕高度 */
+    private Integer deviceScreenHeight;
+
+    /** 最近活跃设备像素比 */
+    private BigDecimal devicePixelRatio;
+
+    /** 最近活跃设备语言 */
+    private String deviceLanguage;
+
+    /** 最近活跃设备时区 */
+    private String deviceTimezone;
+
+    /** 设备首次访问时间 */
+    private Instant deviceFirstSeenAt;
+
+    /** 设备最后访问时间 */
+    private Instant deviceLastSeenAt;
+
+    /** 更新时间 */
+    private Date updateTime;
 
     /**
      * 角色对象
