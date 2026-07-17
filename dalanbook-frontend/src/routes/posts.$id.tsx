@@ -1,5 +1,5 @@
 import { createFileRoute, notFound, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -116,6 +116,39 @@ function buildBody(post: DetailPost): string[] {
     .filter(Boolean);
 }
 
+function topicLookupKey(value: string) {
+  return value.normalize("NFKC").trim().toLocaleLowerCase().replace(/\s/g, "");
+}
+
+function renderTopicText(text: string, topics: Topic[]): ReactNode[] {
+  const topicByName = new Map(topics.map((topic) => [topicLookupKey(topic.name), topic]));
+  const content: ReactNode[] = [];
+  const matcher = /#([^#\n]{2,20})#/gu;
+  let offset = 0;
+  for (const match of text.matchAll(matcher)) {
+    const index = match.index ?? 0;
+    if (index > offset) content.push(text.slice(offset, index));
+    const topic = topicByName.get(topicLookupKey(match[1]));
+    content.push(
+      topic ? (
+        <Link
+          key={`${topic.id}-${index}`}
+          to="/topics/$slug"
+          params={{ slug: topic.slug }}
+          className="font-medium text-foreground underline decoration-foreground/25 underline-offset-4 hover:decoration-foreground/60"
+        >
+          #{topic.name}
+        </Link>
+      ) : (
+        match[0]
+      ),
+    );
+    offset = index + match[0].length;
+  }
+  if (offset < text.length) content.push(text.slice(offset));
+  return content;
+}
+
 function formatCommentTime(value: string) {
   const time = new Date(value).getTime();
   const diff = Date.now() - time;
@@ -123,6 +156,22 @@ function formatCommentTime(value: string) {
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
   return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" }).format(time);
+}
+
+function formatPostTime(value: string) {
+  const time = new Date(value).getTime();
+  if (!Number.isFinite(time)) return "时间未知";
+  const diff = Math.max(0, Date.now() - time);
+  if (diff < 60_000) return "刚刚";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
+  if (diff < 30 * 86_400_000) return `${Math.floor(diff / 86_400_000)} 天前`;
+  const date = new Date(time);
+  return new Intl.DateTimeFormat("zh-CN", {
+    ...(date.getFullYear() === new Date().getFullYear() ? {} : { year: "numeric" }),
+    month: "numeric",
+    day: "numeric",
+  }).format(date);
 }
 
 function PostDetail() {
@@ -164,7 +213,11 @@ function PostDetail() {
     queryKey: ["dalanbook", "user", post.authorId],
     queryFn: () => getUserProfile(post.authorId),
   });
-  const { data: comments, isLoading: commentsLoading, refetch: refetchComments } = useQuery({
+  const {
+    data: comments,
+    isLoading: commentsLoading,
+    refetch: refetchComments,
+  } = useQuery({
     queryKey: ["dalanbook", "post", post.id, "comments"],
     queryFn: () => getPostComments(post.id, { limit: 50 }),
   });
@@ -298,7 +351,7 @@ function PostDetail() {
                 />
               ) : (
                 <div className="relative aspect-[9/16] overflow-hidden rounded-[12px] border border-[color:var(--border)] bg-black">
-                  {video.posterUrl ?? post.cover ? (
+                  {(video.posterUrl ?? post.cover) ? (
                     <img
                       src={video.posterUrl ?? post.cover}
                       alt=""
@@ -354,17 +407,36 @@ function PostDetail() {
 
             {/* Author row */}
             <div className="mt-5 flex items-center gap-3">
-              <span
-                className="flex h-10 w-10 items-center justify-center rounded-full text-[13px] font-semibold text-white"
-                style={{ backgroundColor: post.avatarColor }}
-                aria-hidden
+              <Link
+                to="/u/$id"
+                params={{ id: post.authorId }}
+                className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/20"
+                aria-label={`查看 ${post.author} 的主页`}
               >
-                {post.author.slice(0, 1)}
-              </span>
+                {post.avatarUrl ? (
+                  <img
+                    src={post.avatarUrl}
+                    alt=""
+                    className="h-10 w-10 shrink-0 rounded-full object-cover"
+                  />
+                ) : (
+                  <span
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[13px] font-semibold text-white"
+                    style={{ backgroundColor: post.avatarColor }}
+                    aria-hidden
+                  >
+                    {post.author.slice(0, 1)}
+                  </span>
+                )}
+              </Link>
               <div className="min-w-0 flex-1">
-                <div className="truncate text-[14px] font-semibold text-foreground">
+                <Link
+                  to="/u/$id"
+                  params={{ id: post.authorId }}
+                  className="block truncate text-[14px] font-semibold text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/20"
+                >
                   {post.author}
-                </div>
+                </Link>
                 <div className="mt-0.5 text-[11.5px] text-text-tertiary">
                   发布于{" "}
                   {circleMeta ? (
@@ -378,7 +450,7 @@ function PostDetail() {
                   ) : (
                     post.circle
                   )}{" "}
-                  · 2 天前
+                  · <time dateTime={post.createdAt}>{formatPostTime(post.createdAt)}</time>
                 </div>
               </div>
               {post.authorId !== authUser?.id && (
@@ -409,7 +481,7 @@ function PostDetail() {
 
             <div className="mt-4 space-y-4 text-[15px] leading-[1.85] text-foreground/90">
               {body.map((p, i) => (
-                <p key={i}>{p}</p>
+                <p key={i}>{renderTopicText(p, post.topics)}</p>
               ))}
             </div>
 
@@ -519,7 +591,9 @@ function PostDetail() {
               >
                 <input
                   className="min-w-0 flex-1 bg-transparent text-[13.5px] outline-none placeholder:text-text-tertiary"
-                  placeholder={replyTo ? `回复 @${replyTo.author.name}...` : `回复 @${post.author}...`}
+                  placeholder={
+                    replyTo ? `回复 @${replyTo.author.name}...` : `回复 @${post.author}...`
+                  }
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
                   onFocus={(e) => {
@@ -553,8 +627,12 @@ function PostDetail() {
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline gap-2">
-                        <span className="text-[13px] font-medium text-foreground">{c.author.name}</span>
-                        <span className="text-[11.5px] text-text-tertiary">{formatCommentTime(c.createdAt)}</span>
+                        <span className="text-[13px] font-medium text-foreground">
+                          {c.author.name}
+                        </span>
+                        <span className="text-[11.5px] text-text-tertiary">
+                          {formatCommentTime(c.createdAt)}
+                        </span>
                       </div>
                       <p className="mt-1 text-[13.5px] leading-relaxed text-foreground/90">
                         {c.deleted ? "该评论已删除" : c.content}
@@ -569,7 +647,10 @@ function PostDetail() {
                             回复
                           </button>
                           {c.isMine && (
-                            <button onClick={() => removeComment(c.id)} className="hover:text-foreground">
+                            <button
+                              onClick={() => removeComment(c.id)}
+                              className="hover:text-foreground"
+                            >
                               删除
                             </button>
                           )}
@@ -580,8 +661,12 @@ function PostDetail() {
                           {c.replies.map((reply) => (
                             <li key={reply.id}>
                               <div className="flex items-baseline gap-2">
-                                <span className="text-[12.5px] font-medium text-foreground">{reply.author.name}</span>
-                                <span className="text-[11px] text-text-tertiary">{formatCommentTime(reply.createdAt)}</span>
+                                <span className="text-[12.5px] font-medium text-foreground">
+                                  {reply.author.name}
+                                </span>
+                                <span className="text-[11px] text-text-tertiary">
+                                  {formatCommentTime(reply.createdAt)}
+                                </span>
                               </div>
                               <p className="mt-1 text-[13px] leading-relaxed text-foreground/90">
                                 {reply.deleted ? "该回复已删除" : reply.content}
@@ -611,34 +696,53 @@ function PostDetail() {
             <div className="sticky top-[92px] space-y-4">
               {/* Author card */}
               <section className="rounded-[16px] border border-[color:var(--border)] bg-white/70 p-5">
-                <div className="flex items-center gap-3">
-                  <span
-                    className="flex h-12 w-12 items-center justify-center rounded-full text-[15px] font-semibold text-white"
-                    style={{ backgroundColor: post.avatarColor }}
-                    aria-hidden
-                  >
-                    {post.author.slice(0, 1)}
-                  </span>
+                <Link
+                  to="/u/$id"
+                  params={{ id: post.authorId }}
+                  className="flex items-center gap-3 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/20"
+                  aria-label={`查看 ${post.author} 的主页`}
+                >
+                  {post.avatarUrl ? (
+                    <img
+                      src={post.avatarUrl}
+                      alt=""
+                      className="h-12 w-12 shrink-0 rounded-full object-cover"
+                    />
+                  ) : (
+                    <span
+                      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-[15px] font-semibold text-white"
+                      style={{ backgroundColor: post.avatarColor }}
+                      aria-hidden
+                    >
+                      {post.author.slice(0, 1)}
+                    </span>
+                  )}
                   <div className="min-w-0">
-                    <div className="truncate text-[14px] font-semibold text-foreground">
+                    <div className="truncate text-[14px] font-semibold text-foreground hover:underline">
                       {post.author}
                     </div>
                     <div className="text-[11.5px] text-text-tertiary">
                       持续分享 · 大蓝书原创作者
                     </div>
                   </div>
-                </div>
+                </Link>
                 <dl className="mt-4 grid grid-cols-3 gap-2 text-center text-[11.5px] text-text-tertiary">
                   <div>
-                    <dd className="text-[14px] font-semibold text-foreground">{authorProfile?.postCount ?? 0}</dd>
+                    <dd className="text-[14px] font-semibold text-foreground">
+                      {authorProfile?.postCount ?? 0}
+                    </dd>
                     <dt>作品</dt>
                   </div>
                   <div>
-                    <dd className="text-[14px] font-semibold text-foreground">{authorProfile?.followerCount ?? 0}</dd>
+                    <dd className="text-[14px] font-semibold text-foreground">
+                      {authorProfile?.followerCount ?? 0}
+                    </dd>
                     <dt>粉丝</dt>
                   </div>
                   <div>
-                    <dd className="text-[14px] font-semibold text-foreground">{authorProfile?.followingCount ?? 0}</dd>
+                    <dd className="text-[14px] font-semibold text-foreground">
+                      {authorProfile?.followingCount ?? 0}
+                    </dd>
                     <dt>关注</dt>
                   </div>
                 </dl>

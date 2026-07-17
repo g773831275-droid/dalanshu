@@ -1,17 +1,26 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import {
+    useEffect,
+    useRef,
+    useState,
+    type ChangeEvent,
+    type CompositionEvent,
+    type KeyboardEvent,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, ImageIcon, Plus, Users, Video, X } from "lucide-react";
+import { Check, Hash, ImageIcon, Plus, Users, Video, X } from "lucide-react";
 import { LoginGateModal, useLoginGate } from "@/components/auth/LoginGate";
 import { MobileTopBar } from "@/components/home/MobileTopBar";
 import { TopNav } from "@/components/home/TopNav";
 import { authStore, useAuthUser } from "@/lib/authStore";
 import {
     getCircles,
+    getTopicSuggestions,
     getVideoAsset,
     publishPost,
     uploadImage,
     uploadVideoFile,
+    type Topic,
     type VideoAsset,
 } from "@/lib/dalanbookApi";
 
@@ -29,11 +38,57 @@ type SelectedVideo = Omit<VideoAsset, "status"> & {
     progress: number;
 };
 
+type SelectedTopic = Pick<Topic, "id" | "name"> & { isNew?: boolean };
+
+type TopicTrigger = {
+    start: number;
+    caret: number;
+    query: string;
+};
+
+type TopicOption = SelectedTopic & { isNew: boolean; postCount?: number };
+
 const allowedImageTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 const maxImageSize = 10 * 1024 * 1024;
 const maxVideoSize = 200 * 1024 * 1024;
 const maxVideoDurationSeconds = 180;
 const supportedVideoTypes = new Set(["video/mp4", "video/quicktime", "video/webm"]);
+const maxTopics = 5;
+
+function normalizeTopicName(value: string): string {
+    return value
+        .normalize("NFKC")
+        .trim()
+        .replace(/^#+|#+$/g, "")
+        .trim()
+        .replace(/\s+/g, " ");
+}
+
+function normalizeTopicMarks(value: string): string {
+    return value.replace(/＃/gu, "#");
+}
+
+function topicKey(value: string): string {
+    return normalizeTopicName(value).toLocaleLowerCase().replace(/\s/g, "");
+}
+
+function isValidNewTopic(value: string): boolean {
+    const name = normalizeTopicName(value);
+    const length = Array.from(name).length;
+    return (
+        length >= 2 &&
+        length <= 20 &&
+        !/^\p{N}+$/u.test(name) &&
+        /^[\p{L}\p{N}_+\-./&· ]+$/u.test(name)
+    );
+}
+
+function localFileId(file: File, index: number): string {
+    const suffix =
+        globalThis.crypto?.randomUUID?.() ??
+        `${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`;
+    return `${file.name}-${file.lastModified}-${suffix}`;
+}
 
 function getVideoDuration(file: File): Promise<number> {
     return new Promise((resolve, reject) => {
@@ -63,6 +118,8 @@ function PublishPage() {
     const navigate = useNavigate();
     const imageInput = useRef<HTMLInputElement>(null);
     const videoInput = useRef<HTMLInputElement>(null);
+    const bodyInput = useRef<HTMLTextAreaElement>(null);
+    const bodyComposing = useRef(false);
     const user = useAuthUser();
     const { require, gateProps } = useLoginGate();
     const { data: circles = [] } = useQuery({
@@ -76,6 +133,10 @@ function PublishPage() {
     const [video, setVideo] = useState<SelectedVideo | null>(null);
     const [title, setTitle] = useState("");
     const [body, setBody] = useState("");
+    const [selectedTopics, setSelectedTopics] = useState<SelectedTopic[]>([]);
+    const [topicTrigger, setTopicTrigger] = useState<TopicTrigger | null>(null);
+    const [activeTopicIndex, setActiveTopicIndex] = useState(0);
+    const [debouncedTopicKeyword, setDebouncedTopicKeyword] = useState("");
     const [circleId, setCircleId] = useState<string>("");
     const [toast, setToast] = useState<string | null>(null);
     const [publishing, setPublishing] = useState(false);
@@ -83,11 +144,51 @@ function PublishPage() {
     const titleMax = 30;
     const bodyMax = 1000;
     const selectedCircleId = circleId || circles[0]?.id || "";
+    const selectedCircle = circles.find((circle) => circle.id === selectedCircleId);
+    const willJoinCircle = Boolean(selectedCircle && !selectedCircle.joined);
     const isMediaUploading = uploadingImages || video?.status === "uploading";
+    const topicKeyword = topicTrigger?.query ?? "";
+    const { data: suggestedTopics = [], isFetching: loadingTopics } = useQuery({
+        queryKey: ["dalanbook", "topic-suggestions", debouncedTopicKeyword],
+        queryFn: () => getTopicSuggestions(debouncedTopicKeyword, 10),
+        enabled: topicTrigger !== null,
+        staleTime: 30_000,
+    });
+    const suggestionsReady = debouncedTopicKeyword === topicKeyword;
+    const displayedTopicSuggestions = suggestionsReady ? suggestedTopics : [];
+    const normalizedTopicKeyword = normalizeTopicName(topicKeyword);
+    const hasExactTopic = displayedTopicSuggestions.some(
+        (topic) => topicKey(topic.name) === topicKey(normalizedTopicKeyword),
+    );
+    const topicOptions: TopicOption[] = [
+        ...displayedTopicSuggestions.map((topic) => ({ ...topic, isNew: false as const })),
+        ...(isValidNewTopic(normalizedTopicKeyword) && !hasExactTopic
+            ? [
+                  {
+                      id: `new-${topicKey(normalizedTopicKeyword)}`,
+                      name: normalizedTopicKeyword,
+                      isNew: true as const,
+                  },
+              ]
+            : []),
+    ];
 
     useEffect(() => {
         imagesRef.current = images;
     }, [images]);
+
+    useEffect(() => {
+        setActiveTopicIndex(0);
+    }, [topicKeyword]);
+
+    useEffect(() => {
+        if (topicTrigger === null || topicKeyword === "") {
+            setDebouncedTopicKeyword(topicKeyword);
+            return;
+        }
+        const timer = window.setTimeout(() => setDebouncedTopicKeyword(topicKeyword), 300);
+        return () => window.clearTimeout(timer);
+    }, [topicKeyword, topicTrigger]);
 
     useEffect(
         () => () => {
@@ -128,8 +229,8 @@ function PublishPage() {
         if (accepted.length) {
             setImages((current) => [
                 ...current,
-                ...accepted.map((file) => ({
-                    id: `${file.name}-${file.lastModified}-${crypto.randomUUID()}`,
+                ...accepted.map((file, index) => ({
+                    id: localFileId(file, index),
                     file,
                     previewUrl: URL.createObjectURL(file),
                 })),
@@ -202,6 +303,98 @@ function PublishPage() {
             setToast(error instanceof Error ? error.message : "无法读取视频，请稍后重试");
         } finally {
             if (videoInput.current) videoInput.current.value = "";
+        }
+    }
+
+    function detectTopicTrigger(nextBody: string, caret: number) {
+        const beforeCaret = normalizeTopicMarks(nextBody.slice(0, caret));
+        const start = beforeCaret.lastIndexOf("#");
+        if (start < 0) {
+            setTopicTrigger(null);
+            return;
+        }
+        const previousCharacter = start > 0 ? beforeCaret[start - 1] : "";
+        const query = beforeCaret.slice(start + 1);
+        const validBoundary = start === 0 || /[\s([{"'，。！？、]/u.test(previousCharacter);
+        if (
+            !validBoundary ||
+            query.includes("#") ||
+            /\s/u.test(query) ||
+            Array.from(query).length > 20
+        ) {
+            setTopicTrigger(null);
+            return;
+        }
+        setTopicTrigger({ start, caret, query });
+    }
+
+    function onBodyChange(event: ChangeEvent<HTMLTextAreaElement>) {
+        const composing = bodyComposing.current || event.nativeEvent.isComposing;
+        const inputBody = event.target.value.slice(0, bodyMax);
+        const nextBody = composing ? inputBody : normalizeTopicMarks(inputBody);
+        const caret = Math.min(event.target.selectionStart, nextBody.length);
+        setBody(nextBody);
+        if (!composing) detectTopicTrigger(nextBody, caret);
+    }
+
+    function onBodyCompositionEnd(event: CompositionEvent<HTMLTextAreaElement>) {
+        bodyComposing.current = false;
+        const nextBody = normalizeTopicMarks(event.currentTarget.value.slice(0, bodyMax));
+        const caret = Math.min(event.currentTarget.selectionStart, nextBody.length);
+        setBody(nextBody);
+        detectTopicTrigger(nextBody, caret);
+    }
+
+    function selectTopic(option: TopicOption) {
+        if (!topicTrigger) return;
+        const alreadySelected = selectedTopics.some(
+            (topic) => topicKey(topic.name) === topicKey(option.name),
+        );
+        if (!alreadySelected && selectedTopics.length >= maxTopics) {
+            setToast(`一篇帖子最多添加 ${maxTopics} 个话题`);
+            setTopicTrigger(null);
+            return;
+        }
+        const nextBody = `${body.slice(0, topicTrigger.start)}${body.slice(topicTrigger.caret)}`;
+        const nextCaret = Math.min(topicTrigger.start, nextBody.length);
+        setBody(nextBody);
+        if (!alreadySelected) {
+            setSelectedTopics((current) => [...current, option]);
+        }
+        setTopicTrigger(null);
+        setActiveTopicIndex(0);
+        window.requestAnimationFrame(() => {
+            bodyInput.current?.focus();
+            bodyInput.current?.setSelectionRange(nextCaret, nextCaret);
+        });
+    }
+
+    function removeTopic(topic: SelectedTopic) {
+        setSelectedTopics((current) =>
+            current.filter((item) => topicKey(item.name) !== topicKey(topic.name)),
+        );
+        setTopicTrigger(null);
+    }
+
+    function onTopicKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+        if (!topicTrigger || event.nativeEvent.isComposing) return;
+        if (event.key === "Escape") {
+            event.preventDefault();
+            setTopicTrigger(null);
+            return;
+        }
+        if (!topicOptions.length) return;
+        if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setActiveTopicIndex((current) => (current + 1) % topicOptions.length);
+        } else if (event.key === "ArrowUp") {
+            event.preventDefault();
+            setActiveTopicIndex(
+                (current) => (current - 1 + topicOptions.length) % topicOptions.length,
+            );
+        } else if (event.key === "Enter") {
+            event.preventDefault();
+            selectTopic(topicOptions[activeTopicIndex] ?? topicOptions[0]);
         }
     }
 
@@ -279,10 +472,12 @@ function PublishPage() {
                     videoAssetId: mediaMode === "video" ? uploadedVideoId : undefined,
                     ratio: mediaMode === "video" ? "9/16" : "4/5",
                     tag: "经验",
+                    topics: selectedTopics.map((topic) => topic.name),
                 });
                 images.forEach((image) => URL.revokeObjectURL(image.previewUrl));
                 setImages([]);
                 setVideo(null);
+                setSelectedTopics([]);
                 setToast("发布成功，正在打开帖子…");
                 window.setTimeout(
                     () => navigate({ to: "/posts/$id", params: { id: post.id } }),
@@ -496,15 +691,116 @@ function PublishPage() {
                         </div>
                     </div>
 
-                    <div className="mt-4">
+                    <div className="relative mt-4">
                         <textarea
+                            ref={bodyInput}
                             value={body}
-                            onChange={(event) => setBody(event.target.value.slice(0, bodyMax))}
-                            placeholder="分享真实经验、复盘或提问…尽量具体，别人才能复现。"
+                            onChange={onBodyChange}
+                            onCompositionStart={() => {
+                                bodyComposing.current = true;
+                                setTopicTrigger(null);
+                            }}
+                            onCompositionEnd={onBodyCompositionEnd}
+                            onKeyDown={onTopicKeyDown}
+                            onSelect={(event) => {
+                                if (!bodyComposing.current) {
+                                    detectTopicTrigger(
+                                        event.currentTarget.value,
+                                        event.currentTarget.selectionStart,
+                                    );
+                                }
+                            }}
+                            placeholder="分享真实经验、复盘或提问…输入 # 添加话题"
                             className="min-h-[220px] w-full resize-none bg-transparent text-[15px] leading-[1.85] text-foreground placeholder:text-text-tertiary focus:outline-none"
                         />
-                        <div className="text-right text-[11px] text-text-tertiary">
-                            {body.length}/{bodyMax}
+                        {topicTrigger ? (
+                            <div className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+1rem)] z-50 overflow-hidden rounded-[14px] border border-[color:var(--border)] bg-white shadow-[var(--shadow-floating)] md:absolute md:inset-x-0 md:top-full md:bottom-auto md:z-30 md:mt-1">
+                                <div className="border-b border-[color:var(--border)] px-3 py-2 text-[11px] text-text-tertiary">
+                                    {topicKeyword
+                                        ? `搜索话题“${topicKeyword}”`
+                                        : "选择热门话题，或继续输入新话题名称"}
+                                </div>
+                                <div className="max-h-[min(260px,40dvh)] overflow-y-auto overscroll-contain p-1.5">
+                                    {(loadingTopics || !suggestionsReady) &&
+                                    topicOptions.length === 0 ? (
+                                        <p className="px-3 py-3 text-[12px] text-text-tertiary">
+                                            正在搜索话题…
+                                        </p>
+                                    ) : topicOptions.length > 0 ? (
+                                        topicOptions.map((option, index) => {
+                                            const selected = selectedTopics.some(
+                                                (topic) =>
+                                                    topicKey(topic.name) === topicKey(option.name),
+                                            );
+                                            return (
+                                                <button
+                                                    type="button"
+                                                    key={`${option.isNew ? "new" : option.id}-${option.name}`}
+                                                    onPointerDown={(event) => {
+                                                        if (event.pointerType === "mouse") {
+                                                            event.preventDefault();
+                                                        }
+                                                    }}
+                                                    onClick={() => selectTopic(option)}
+                                                    className={
+                                                        "flex w-full items-center justify-between rounded-[10px] px-3 py-2 text-left transition-colors " +
+                                                        (index === activeTopicIndex
+                                                            ? "bg-[color:var(--action-muted)]"
+                                                            : "hover:bg-[color:var(--action-muted)]")
+                                                    }
+                                                >
+                                                    <span className="flex min-w-0 items-center gap-2">
+                                                        <Hash className="h-4 w-4 shrink-0 text-text-tertiary" />
+                                                        <span className="truncate text-[13px] font-medium text-foreground">
+                                                            {option.name}
+                                                        </span>
+                                                    </span>
+                                                    <span className="ml-3 shrink-0 text-[11px] text-text-tertiary">
+                                                        {selected
+                                                            ? "已添加"
+                                                            : option.isNew
+                                                              ? "创建新话题"
+                                                              : `${option.postCount ?? 0} 篇`}
+                                                    </span>
+                                                </button>
+                                            );
+                                        })
+                                    ) : (
+                                        <p className="px-3 py-3 text-[12px] text-text-tertiary">
+                                            话题名称至少输入 2 个字符
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                        ) : null}
+                        <div className="mt-3 border-t border-[color:var(--border)] pt-3 text-[11px] text-text-tertiary">
+                            <div className="flex items-center justify-between gap-3">
+                                <span>
+                                    {selectedTopics.length > 0
+                                        ? `已选话题（${selectedTopics.length}/${maxTopics}）`
+                                        : `输入 # 搜索或创建话题，最多 ${maxTopics} 个`}
+                                </span>
+                                <span className="shrink-0">
+                                    {body.length}/{bodyMax}
+                                </span>
+                            </div>
+                            {selectedTopics.length > 0 ? (
+                                <div className="mt-2 flex min-w-0 flex-wrap gap-1.5">
+                                    {selectedTopics.map((topic) => (
+                                        <button
+                                            type="button"
+                                            key={`${topic.id}-${topic.name}`}
+                                            onClick={() => removeTopic(topic)}
+                                            disabled={publishing}
+                                            className="inline-flex items-center gap-1 rounded-full bg-[color:var(--action-muted)] px-2 py-1 text-[11px] text-text-secondary transition-colors hover:text-foreground disabled:opacity-50"
+                                            title="移除话题"
+                                        >
+                                            #{topic.name}
+                                            <X className="h-3 w-3" />
+                                        </button>
+                                    ))}
+                                </div>
+                            ) : null}
                         </div>
                     </div>
 
@@ -542,6 +838,12 @@ function PublishPage() {
                                 </Link>
                             )}
                         </div>
+                        {willJoinCircle && selectedCircle ? (
+                            <p className="mt-2 rounded-[10px] bg-[color:var(--action-muted)] px-3 py-2 text-[12px] leading-5 text-text-secondary">
+                                你尚未加入“{selectedCircle.name}”。点击“加入并发布”后，
+                                发布成功即自动加入该圈子。
+                            </p>
+                        ) : null}
                     </div>
 
                     <div className="mt-6 hidden items-center justify-end gap-2 md:flex">
@@ -551,7 +853,7 @@ function PublishPage() {
                             onClick={onPublish}
                             className="h-10 rounded-[12px] bg-foreground px-5 text-[13.5px] font-medium text-white transition-colors hover:bg-[color:var(--action-primary-hover)] disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                            {publishing ? "发布中…" : "发布"}
+                            {publishing ? "发布中…" : willJoinCircle ? "加入并发布" : "发布"}
                         </button>
                     </div>
                 </div>
@@ -564,7 +866,7 @@ function PublishPage() {
                     onClick={onPublish}
                     className="h-10 w-full rounded-[12px] bg-foreground text-[14px] font-medium text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                    {publishing ? "发布中…" : "发布"}
+                    {publishing ? "发布中…" : willJoinCircle ? "加入并发布" : "发布"}
                 </button>
             </div>
 

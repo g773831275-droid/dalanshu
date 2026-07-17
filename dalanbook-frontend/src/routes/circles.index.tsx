@@ -1,14 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { TopNav } from "@/components/home/TopNav";
 import { MobileTopBar } from "@/components/home/MobileTopBar";
 import { MobileBottomNav } from "@/components/home/MobileBottomNav";
 import { CircleCard } from "@/components/circles/CircleCard";
-import { circleCategories } from "@/data/mockCircles";
 import { useAuthUser } from "@/lib/authStore";
-import { getCirclePage, getMyCircles } from "@/lib/dalanbookApi";
+import { getCirclePage, getCircles, getMyCircles } from "@/lib/dalanbookApi";
 
 const PAGE_SIZE = 8;
 
@@ -33,8 +32,24 @@ export const Route = createFileRoute("/circles/")({
 
 function CirclesPage() {
   const [q, setQ] = useState("");
+  const deferredQuery = useDeferredValue(q.trim());
   const [cat, setCat] = useState("全部");
   const user = useAuthUser();
+  const { data: categorySource = [] } = useQuery({
+    queryKey: ["dalanbook", "circles", "filter-categories"],
+    queryFn: () => getCircles(),
+  });
+  const circleCategories = useMemo(
+    () => [
+      "全部",
+      ...new Set(
+        categorySource
+          .map((circle) => circle.category.trim())
+          .filter(Boolean),
+      ),
+    ],
+    [categorySource],
+  );
   const {
     data: circlePages,
     isLoading,
@@ -44,9 +59,10 @@ function CirclesPage() {
     isFetchNextPageError,
     fetchNextPage,
   } = useInfiniteQuery({
-    queryKey: ["dalanbook", "circles", "collection", cat],
+    queryKey: ["dalanbook", "circles", "collection", cat, deferredQuery],
     queryFn: ({ pageParam }) => getCirclePage({
       category: cat === "全部" ? undefined : cat,
+      query: deferredQuery || undefined,
       cursor: pageParam,
       limit: PAGE_SIZE,
     }),
@@ -62,11 +78,7 @@ function CirclesPage() {
   });
 
   const allCircles = circlePages?.pages.flatMap((page) => page.items) ?? [];
-  const list = allCircles.filter((c) => {
-    if (q && !`${c.name} ${c.desc} ${c.tags.join(" ")}`.toLowerCase().includes(q.toLowerCase()))
-      return false;
-    return true;
-  });
+  const list = allCircles;
 
   const featured = allCircles.filter((c) => c.joined).slice(0, 3);
 

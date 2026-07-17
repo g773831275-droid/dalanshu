@@ -442,6 +442,18 @@ function CircleDetail() {
                                     }).format(new Date(selectedPinned.publishedAt))}
                                 </DialogDescription>
                             </DialogHeader>
+                            {selectedPinned.images && selectedPinned.images.length > 0 && (
+                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                    {selectedPinned.images.map((image) => (
+                                        <img
+                                            key={image.ossId}
+                                            src={image.url}
+                                            alt=""
+                                            className="max-h-[420px] w-full rounded-[14px] object-cover"
+                                        />
+                                    ))}
+                                </div>
+                            )}
                             <div className="whitespace-pre-wrap text-[14px] leading-7 text-text-secondary">
                                 {selectedPinned.content}
                             </div>

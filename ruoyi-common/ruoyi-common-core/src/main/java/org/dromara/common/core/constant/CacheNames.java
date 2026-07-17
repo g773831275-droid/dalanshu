@@ -82,6 +82,11 @@ public interface CacheNames {
     String SYS_OSS_CONFIG = GlobalConstants.GLOBAL_REDIS_KEY + "sys_oss_config";
 
     /**
+     * 大蓝书首页首屏公共数据。短 TTL、仅 Redis，避免多实例本地缓存不一致。
+     */
+    String DALANBOOK_HOME_FEED = GlobalConstants.GLOBAL_REDIS_KEY + "dalanbook:home_feed#30s#0#500#0";
+
+    /**
      * 在线用户
      */
     String ONLINE_TOKEN = "online_tokens";

@@ -22,6 +22,7 @@ import org.dromara.common.core.utils.*;
 import org.dromara.common.mybatis.core.page.PageQuery;
 import org.dromara.common.mybatis.core.page.TableDataInfo;
 import org.dromara.common.satoken.utils.LoginHelper;
+import org.dromara.common.tenant.helper.TenantHelper;
 import org.dromara.system.domain.SysRole;
 import org.dromara.system.domain.SysUser;
 import org.dromara.system.domain.SysUserPost;
@@ -76,24 +77,26 @@ public class SysUserServiceImpl implements ISysUserService, UserService {
 
     private void enrichUserProfileData(List<SysUserVo> users) {
         if (CollUtil.isEmpty(users)) return;
-        List<Long> userIds = users.stream().map(SysUserVo::getUserId).toList();
-        Map<Long, DalanUserProfile> profiles = dalanUserProfileMapper.selectList(
-                new LambdaQueryWrapper<DalanUserProfile>().in(DalanUserProfile::getUserId, userIds))
-            .stream().collect(java.util.stream.Collectors.toMap(DalanUserProfile::getUserId, value -> value));
-        Map<Long, DalanUserDevice> devices = new LinkedHashMap<>();
-        dalanUserDeviceMapper.selectList(new LambdaQueryWrapper<DalanUserDevice>()
-                .in(DalanUserDevice::getUserId, userIds).orderByDesc(DalanUserDevice::getLastSeenAt))
-            .forEach(device -> devices.putIfAbsent(device.getUserId(), device));
-        for (SysUserVo user : users) {
-            DalanUserProfile profile = profiles.get(user.getUserId());
-            if (profile != null) {
-                applyUserProfile(user, profile);
+        TenantHelper.ignore(() -> {
+            List<Long> userIds = users.stream().map(SysUserVo::getUserId).toList();
+            Map<Long, DalanUserProfile> profiles = dalanUserProfileMapper.selectList(
+                    new LambdaQueryWrapper<DalanUserProfile>().in(DalanUserProfile::getUserId, userIds))
+                .stream().collect(java.util.stream.Collectors.toMap(DalanUserProfile::getUserId, value -> value));
+            Map<Long, DalanUserDevice> devices = new LinkedHashMap<>();
+            dalanUserDeviceMapper.selectList(new LambdaQueryWrapper<DalanUserDevice>()
+                    .in(DalanUserDevice::getUserId, userIds).orderByDesc(DalanUserDevice::getLastSeenAt))
+                .forEach(device -> devices.putIfAbsent(device.getUserId(), device));
+            for (SysUserVo user : users) {
+                DalanUserProfile profile = profiles.get(user.getUserId());
+                if (profile != null) {
+                    applyUserProfile(user, profile);
+                }
+                DalanUserDevice device = devices.get(user.getUserId());
+                if (device != null) {
+                    applyLatestDevice(user, device);
+                }
             }
-            DalanUserDevice device = devices.get(user.getUserId());
-            if (device != null) {
-                applyLatestDevice(user, device);
-            }
-        }
+        });
     }
 
     private void applyUserProfile(SysUserVo user, DalanUserProfile profile) {
@@ -249,7 +252,15 @@ public class SysUserServiceImpl implements ISysUserService, UserService {
             return user;
         }
         user.setRoles(roleMapper.selectRolesByUserId(user.getUserId()));
-        enrichUserProfileData(List.of(user));
+        return user;
+    }
+
+    @Override
+    public SysUserVo selectUserDetailById(Long userId) {
+        SysUserVo user = selectUserById(userId);
+        if (ObjectUtil.isNotNull(user)) {
+            enrichUserProfileData(List.of(user));
+        }
         return user;
     }
 
@@ -452,32 +463,34 @@ public class SysUserServiceImpl implements ISysUserService, UserService {
         if (!hasProfileFields) {
             return;
         }
-        DalanUserProfile profile = dalanUserProfileMapper.selectById(user.getUserId());
-        boolean insert = profile == null;
-        if (insert) {
-            profile = new DalanUserProfile();
-            profile.setUserId(user.getUserId());
-            profile.setFollowerCount(0L);
-            profile.setFollowingCount(0L);
-            profile.setPostCount(0L);
-            profile.setCreatedAt(Instant.now());
-        }
-        profile.setBio(StringUtils.defaultString(user.getBio()));
-        profile.setGender(toProfileGender(user.getSex()));
-        profile.setAgeRange(StringUtils.defaultIfBlank(user.getAgeRange(), "unknown"));
-        profile.setProvinceCode(StringUtils.defaultString(user.getProvinceCode()));
-        profile.setProvinceName(StringUtils.defaultString(user.getProvinceName()));
-        profile.setCityCode(StringUtils.defaultString(user.getCityCode()));
-        profile.setCityName(StringUtils.defaultString(user.getCityName()));
-        String province = profile.getProvinceName();
-        String city = profile.getCityName();
-        profile.setLocation(StringUtils.isBlank(province) ? city : StringUtils.isBlank(city) ? province : province + " · " + city);
-        profile.setUpdatedAt(Instant.now());
-        if (insert) {
-            dalanUserProfileMapper.insert(profile);
-        } else {
-            dalanUserProfileMapper.updateById(profile);
-        }
+        TenantHelper.ignore(() -> {
+            DalanUserProfile profile = dalanUserProfileMapper.selectById(user.getUserId());
+            boolean insert = profile == null;
+            if (insert) {
+                profile = new DalanUserProfile();
+                profile.setUserId(user.getUserId());
+                profile.setFollowerCount(0L);
+                profile.setFollowingCount(0L);
+                profile.setPostCount(0L);
+                profile.setCreatedAt(Instant.now());
+            }
+            profile.setBio(StringUtils.defaultString(user.getBio()));
+            profile.setGender(toProfileGender(user.getSex()));
+            profile.setAgeRange(StringUtils.defaultIfBlank(user.getAgeRange(), "unknown"));
+            profile.setProvinceCode(StringUtils.defaultString(user.getProvinceCode()));
+            profile.setProvinceName(StringUtils.defaultString(user.getProvinceName()));
+            profile.setCityCode(StringUtils.defaultString(user.getCityCode()));
+            profile.setCityName(StringUtils.defaultString(user.getCityName()));
+            String province = profile.getProvinceName();
+            String city = profile.getCityName();
+            profile.setLocation(StringUtils.isBlank(province) ? city : StringUtils.isBlank(city) ? province : province + " · " + city);
+            profile.setUpdatedAt(Instant.now());
+            if (insert) {
+                dalanUserProfileMapper.insert(profile);
+            } else {
+                dalanUserProfileMapper.updateById(profile);
+            }
+        });
     }
 
     private String toSystemSex(String gender) {

@@ -170,6 +170,10 @@ export type CirclePinnedItem = {
     kind: CirclePinnedItemKind;
     title: string;
     content: string;
+    images?: Array<{
+        ossId: string;
+        url: string;
+    }>;
     publisher: {
         id: string;
         name: string;
@@ -215,6 +219,7 @@ export type CirclePage = {
 
 export type GetCirclePageInput = {
     category?: string;
+    query?: string;
     cursor?: string | null;
     limit?: number;
 };
@@ -241,6 +246,7 @@ function toPost(item: FeedItem): Post {
         circleId: item.circle.id,
         circle: item.circle.name,
         title: item.title,
+        authorId: item.author.id,
         author: item.author.name,
         avatarUrl: item.author.avatarUrl,
         avatarColor: item.author.avatarColor,
@@ -527,15 +533,32 @@ export function deletePostComment(id: string): Promise<{ deleted: boolean }> {
 
 export async function getCirclePage({
     category,
+    query,
     cursor,
     limit = 20,
 }: GetCirclePageInput = {}): Promise<CirclePage> {
     const params = new URLSearchParams({ limit: String(limit) });
     if (category) params.set("category", category);
+    if (query?.trim()) params.set("q", query.trim());
     if (cursor) params.set("cursor", cursor);
-    const data = useMockApi
-        ? await getMockCirclePage({ category, cursor, limit })
-        : await authRequest<CursorPage<ApiCircle>>(`/api/v1/circles?${params.toString()}`);
+    let data: CursorPage<ApiCircle>;
+    if (useMockApi) {
+        data = await getMockCirclePage({ category, cursor, limit });
+        if (query?.trim()) {
+            const keyword = query.trim().toLowerCase();
+            data = {
+                ...data,
+                items: data.items.filter((circle) =>
+                    `${circle.name} ${circle.desc} ${circle.tags.join(" ")}`
+                        .toLowerCase()
+                        .includes(keyword),
+                ),
+            };
+        }
+    } else {
+        const endpoint = query?.trim() ? "/api/v1/search/circles" : "/api/v1/circles";
+        data = await authRequest<CursorPage<ApiCircle>>(`${endpoint}?${params.toString()}`);
+    }
     return {
         items: data.items.map(toCircle),
         nextCursor: data.nextCursor ?? null,
@@ -620,6 +643,13 @@ export async function setCircleMembership(id: string, joined: boolean): Promise<
 
 export function getTopics(): Promise<Topic[]> {
     return authRequest<Topic[]>("/api/v1/topics?limit=50");
+}
+
+export function getTopicSuggestions(keyword: string, limit = 10): Promise<Topic[]> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    const normalizedKeyword = keyword.normalize("NFKC").trim();
+    if (normalizedKeyword) params.set("keyword", normalizedKeyword);
+    return authRequest<Topic[]>(`/api/v1/topics?${params.toString()}`);
 }
 
 export async function getTopic(slug: string): Promise<{ topic: Topic; posts: Post[] }> {

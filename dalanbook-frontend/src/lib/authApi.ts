@@ -147,7 +147,7 @@ export async function authRequest<T>(
     const token = getAccessToken();
     const url =
         typeof window === "undefined" && path.startsWith("/")
-            ? `http://localhost:8881${path}`
+            ? `http://localhost:8080${path}`
             : path;
     const response = await fetch(url, {
         ...init,
@@ -275,6 +275,7 @@ export async function logout(): Promise<void> {
         }
     } finally {
         clearTokens();
+        authStore.set(null);
     }
 }
 
@@ -317,7 +318,9 @@ export type UpdateProfileInput = Pick<
     | "provinceName"
     | "cityCode"
     | "cityName"
->;
+> & {
+    avatarOssId?: string;
+};
 
 export function getMyProfile() {
     if (useMockApi) return getMockMyProfile();

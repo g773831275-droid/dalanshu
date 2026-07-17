@@ -42,7 +42,7 @@ export function PostCard({ post }: { post: Post }) {
                   <Play className="ml-0.5 h-4 w-4 fill-current" strokeWidth={1.75} />
                 </span>
                 <span className="absolute bottom-2 right-2 rounded-md bg-black/65 px-1.5 py-0.5 text-[10.5px] font-medium text-white">
-                  {post.video?.status === "ready" ? videoDuration ?? "短视频" : "处理中"}
+                  {post.video?.status === "ready" ? (videoDuration ?? "短视频") : "处理中"}
                 </span>
               </>
             ) : null}
@@ -82,8 +82,37 @@ export function PostCard({ post }: { post: Post }) {
           <h3 className="line-clamp-2 text-[14px] md:text-[14.5px] font-semibold leading-snug tracking-[-0.01em] text-foreground">
             {post.title}
           </h3>
+        </Link>
 
-          <div className="mt-2.5 flex items-center justify-between">
+        <div className="mt-2.5 flex items-center justify-between">
+          {post.authorId ? (
+            <Link
+              to="/u/$id"
+              params={{ id: post.authorId }}
+              className="flex min-w-0 items-center gap-1.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/20"
+              aria-label={`查看 ${post.author} 的主页`}
+            >
+              {post.avatarUrl ? (
+                <img
+                  src={post.avatarUrl}
+                  alt=""
+                  loading="lazy"
+                  className="h-5 w-5 shrink-0 rounded-full object-cover"
+                />
+              ) : (
+                <span
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white"
+                  style={{ backgroundColor: post.avatarColor }}
+                  aria-hidden
+                >
+                  {initial}
+                </span>
+              )}
+              <span className="truncate text-[12px] text-text-secondary hover:text-foreground hover:underline">
+                {post.author}
+              </span>
+            </Link>
+          ) : (
             <div className="flex min-w-0 items-center gap-1.5">
               {post.avatarUrl ? (
                 <img
@@ -103,17 +132,17 @@ export function PostCard({ post }: { post: Post }) {
               )}
               <span className="truncate text-[12px] text-text-secondary">{post.author}</span>
             </div>
-            <div
-              className={
-                "flex items-center gap-1 text-[12px] " +
-                (post.usefulLiked ? "text-foreground" : "text-text-tertiary")
-              }
-            >
-              <ThumbsUp className="h-3.5 w-3.5" strokeWidth={1.75} />
-              <span>{post.useful}</span>
-            </div>
+          )}
+          <div
+            className={
+              "flex items-center gap-1 text-[12px] " +
+              (post.usefulLiked ? "text-foreground" : "text-text-tertiary")
+            }
+          >
+            <ThumbsUp className="h-3.5 w-3.5" strokeWidth={1.75} />
+            <span>{post.useful}</span>
           </div>
-        </Link>
+        </div>
       </div>
     </article>
   );

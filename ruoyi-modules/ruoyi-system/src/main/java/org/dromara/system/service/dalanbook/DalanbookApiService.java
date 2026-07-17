@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import org.dromara.common.json.utils.JsonUtils;
+import org.dromara.common.mybatis.helper.DataPermissionHelper;
+import org.dromara.common.oss.enums.OssImageStyle;
 import org.dromara.common.satoken.utils.LoginHelper;
 import org.dromara.system.config.dalanbook.VodProperties;
 import org.dromara.system.controller.dalanbook.v1.DalanApiException;
@@ -15,6 +17,8 @@ import org.dromara.system.domain.vo.SysOssVo;
 import org.dromara.system.mapper.SysUserMapper;
 import org.dromara.system.mapper.dalanbook.v1.*;
 import org.dromara.system.service.ISysOssService;
+import org.dromara.system.service.dalanbook.cache.DalanbookHomeFeedCacheService;
+import org.dromara.system.service.dalanbook.cache.DalanbookHomeFeedSnapshot;
 import org.dromara.system.service.dalanbook.vod.VolcengineVodGateway;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
@@ -38,8 +42,10 @@ public class DalanbookApiService {
     private static final long MAX_VIDEO_DURATION_MS = 3L * 60 * 1000;
     private static final Set<String> HOME_CHANNELS = Set.of("recommend", "following", "latest");
     private static final Set<String> MY_POST_TYPES = Set.of("published", "liked", "favorite");
+    private static final Set<String> MESSAGE_NOTIFICATION_TYPES = Set.of("post_like", "post_favorite", "user_follow");
     private static final Set<String> AGE_RANGES = Set.of("unknown", "under18", "18-24", "25-29", "30-34", "35-39", "40-49", "50plus");
     private static final Set<String> GENDERS = Set.of("unknown", "male", "female", "other");
+    private static final Set<String> AVATAR_IMAGE_SUFFIXES = Set.of("jpg", "jpeg", "png", "webp", "gif");
     private static final List<Category> CATEGORIES = List.of(
         new Category("recommend", "推荐", "system"),
         new Category("career", "职场成长", "topic"),
@@ -58,6 +64,7 @@ public class DalanbookApiService {
 
     private final DalanCircleV1Mapper circleMapper;
     private final DalanCircleMemberMapper memberMapper;
+    private final DalanCirclePinnedItemMapper pinnedItemMapper;
     private final DalanPostV1Mapper postMapper;
     private final DalanVideoAssetMapper videoAssetMapper;
     private final DalanPostStatsMapper statsMapper;
@@ -72,6 +79,7 @@ public class DalanbookApiService {
     private final DalanImpressionMapper impressionMapper;
     private final SysUserMapper userMapper;
     private final ISysOssService ossService;
+    private final DalanbookHomeFeedCacheService homeFeedCacheService;
     private final VolcengineVodGateway vodGateway;
     private final VodProperties vodProperties;
 
@@ -85,6 +93,10 @@ public class DalanbookApiService {
         }
         int limit = normalizeLimit(requestedLimit, 40);
         CursorValue cursorValue = decodeCursor(cursor);
+        if (cursorValue == null && !"following".equals(channel)) {
+            DalanbookHomeFeedSnapshot snapshot = homeFeedCacheService.loadFirstPage(categoryId, channel, limit);
+            return feedResponse(snapshot.getPosts(), snapshot.isHasMore(), context(snapshot));
+        }
         Set<String> circleIds = categoryCircleIds(categoryId);
         if (circleIds.isEmpty() && !isSystemCategory(categoryId)) {
             return new FeedResponse(List.of(), null, false);
@@ -111,10 +123,7 @@ public class DalanbookApiService {
         List<DalanPostV1> rows = postMapper.selectList(query);
         boolean hasMore = rows.size() > limit;
         List<DalanPostV1> page = hasMore ? rows.subList(0, limit) : rows;
-        FeedContext context = context(page);
-        List<FeedItem> items = page.stream().map(post -> toFeedItem(post, context)).toList();
-        String nextCursor = hasMore && !page.isEmpty() ? encodeCursor(page.get(page.size() - 1)) : null;
-        return new FeedResponse(items, nextCursor, hasMore);
+        return feedResponse(page, hasMore, context(page));
     }
 
     public CircleRecommendResponse circleRecommend(String categoryId) {
@@ -150,7 +159,8 @@ public class DalanbookApiService {
             .eq(DalanCircleMember::getUserId, userId.get()).orderByDesc(DalanCircleMember::getJoinedAt).last("LIMIT 20"));
         Map<String, DalanCircleV1> circles = circleMap(memberships.stream().map(DalanCircleMember::getCircleId).toList());
         List<MyCircle> mine = memberships.stream().map(member -> circles.get(member.getCircleId()))
-            .filter(Objects::nonNull).map(circle -> new MyCircle(circle.getId(), circle.getName(), circle.getCover(), 0)).toList();
+            .filter(Objects::nonNull).map(circle -> new MyCircle(circle.getId(), circle.getName(),
+                assetUrl(parseNullableOssId(circle.getCover()), circle.getCover(), OssImageStyle.CIRCLE_CARD_720X405), 0)).toList();
         return new LeftNavResponse(shortcuts, mine);
     }
 
@@ -174,6 +184,41 @@ public class DalanbookApiService {
                 .orderByDesc(DalanPostV1::getCreatedAt).last("LIMIT 5"))
             .forEach(post -> result.add(new Suggestion("post", post.getId(), post.getTitle())));
         return new SuggestionsResponse(result.stream().limit(10).toList());
+    }
+
+    public FeedResponse searchPosts(String rawQuery, String cursor, int requestedLimit) {
+        String query = searchQuery(rawQuery);
+        return postFeed(new LambdaQueryWrapper<DalanPostV1>()
+            .eq(DalanPostV1::getVisibility, "public")
+            .and(wrapper -> wrapper.like(DalanPostV1::getTitle, query)
+                .or().like(DalanPostV1::getContent, query)), cursor, requestedLimit);
+    }
+
+    public CursorPage<CircleDto> searchCircles(String rawQuery, String category, String cursor, int requestedLimit) {
+        String keyword = searchQuery(rawQuery);
+        int limit = normalizeLimit(requestedLimit, 50);
+        CursorValue cv = decodeCursor(cursor);
+        LambdaQueryWrapper<DalanCircleV1> query = new LambdaQueryWrapper<DalanCircleV1>()
+            .eq(DalanCircleV1::getStatus, "published")
+            .eq(category != null && !category.isBlank(), DalanCircleV1::getCategory, category)
+            .and(wrapper -> wrapper.like(DalanCircleV1::getName, keyword)
+                .or().like(DalanCircleV1::getDescription, keyword)
+                .or().like(DalanCircleV1::getTags, keyword))
+            .and(cv != null, wrapper -> wrapper.lt(DalanCircleV1::getCreatedAt, cv == null ? null : cv.createdAt())
+                .or().eq(DalanCircleV1::getCreatedAt, cv == null ? null : cv.createdAt())
+                .lt(DalanCircleV1::getId, cv == null ? null : cv.id()))
+            .orderByDesc(DalanCircleV1::getCreatedAt)
+            .orderByDesc(DalanCircleV1::getId)
+            .last("LIMIT " + (limit + 1));
+        List<DalanCircleV1> rows = circleMapper.selectList(query);
+        boolean hasMore = rows.size() > limit;
+        List<DalanCircleV1> page = hasMore ? rows.subList(0, limit) : rows;
+        Set<String> joined = joinedCircleIds();
+        Long userId = currentUserId().orElse(null);
+        List<CircleDto> items = page.stream().map(circle -> toCircle(circle, joined, userId)).toList();
+        String next = hasMore && !page.isEmpty()
+            ? encodeCursor(page.get(page.size() - 1).getCreatedAt(), page.get(page.size() - 1).getId()) : null;
+        return new CursorPage<>(items, next, hasMore);
     }
 
     public MeSummary meSummary() {
@@ -212,9 +257,39 @@ public class DalanbookApiService {
         profileMapper.updateById(profile);
 
         SysUser user = userMapper.selectById(userId);
-        user.setNickName(request.nickname().trim());
-        user.setSex(sexCode(request.gender()));
-        userMapper.updateById(user);
+        String nickname = request.nickname().trim();
+        String sex = sexCode(request.gender());
+        Long avatarOssId = null;
+        if (request.avatarOssId() != null && !request.avatarOssId().isBlank()) {
+            avatarOssId = parseOssId(request.avatarOssId());
+            SysOssVo avatarOss = ossService.getById(avatarOssId);
+            if (avatarOss == null) {
+                throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "AVATAR_NOT_FOUND", "头像图片不存在");
+            }
+            if (!Objects.equals(avatarOss.getCreateBy(), userId)) {
+                throw new DalanApiException(HttpStatus.FORBIDDEN, "AVATAR_NOT_OWNED", "不能使用其他用户上传的图片作为头像");
+            }
+            String suffix = clean(avatarOss.getFileSuffix()).replace(".", "").toLowerCase(Locale.ROOT);
+            if (!AVATAR_IMAGE_SUFFIXES.contains(suffix)) {
+                throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_AVATAR_TYPE", "头像仅支持 JPEG、PNG、WebP、GIF 图片");
+            }
+        }
+        Long finalAvatarOssId = avatarOssId;
+        int updated = DataPermissionHelper.ignore(() -> userMapper.update(null,
+            new LambdaUpdateWrapper<SysUser>()
+                .eq(SysUser::getUserId, userId)
+                .set(SysUser::getNickName, nickname)
+                .set(SysUser::getSex, sex)
+                .set(finalAvatarOssId != null, SysUser::getAvatar, finalAvatarOssId)));
+        if (updated != 1) {
+            throw new DalanApiException(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", "用户不存在");
+        }
+        user.setNickName(nickname);
+        user.setSex(sex);
+        if (finalAvatarOssId != null) {
+            user.setAvatar(finalAvatarOssId);
+        }
+        homeFeedCacheService.evictAll();
         return toMyProfile(user, profile);
     }
 
@@ -264,12 +339,7 @@ public class DalanbookApiService {
         DalanUserProfile profile = profileMapper.selectById(userId);
         boolean following = currentUserId().filter(id -> !id.equals(userId)).map(id -> followMapper.selectCount(
             new LambdaQueryWrapper<DalanFollow>().eq(DalanFollow::getFollowerId, id).eq(DalanFollow::getFolloweeId, userId)) > 0).orElse(false);
-        Instant createdAt = user.getCreateTime() == null ? null : user.getCreateTime().toInstant();
-        return new UserDto(String.valueOf(userId), user.getNickName(), avatarUrl(user.getAvatar()),
-            profile == null ? "" : profile.getBio(), profile == null ? sex(user.getSex()) : profile.getGender(),
-            profile == null ? "" : profile.getLocation(), profile == null ? 0 : nvl(profile.getFollowerCount()),
-            profile == null ? 0 : nvl(profile.getFollowingCount()), profile == null ? 0 : nvl(profile.getPostCount()),
-            following, createdAt);
+        return toUserDto(user, profile, following);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -301,6 +371,14 @@ public class DalanbookApiService {
             changeFollowCounts(followerId, followeeId, -1);
         }
         return user(followeeId);
+    }
+
+    public CursorPage<UserDto> userFollowers(Long userId, String cursor, int requestedLimit) {
+        return userRelations(userId, cursor, requestedLimit, true);
+    }
+
+    public CursorPage<UserDto> userFollowing(Long userId, String cursor, int requestedLimit) {
+        return userRelations(userId, cursor, requestedLimit, false);
     }
 
     public FeedResponse userPosts(Long userId, String cursor, int requestedLimit) {
@@ -376,7 +454,27 @@ public class DalanbookApiService {
     public CircleDto circle(String id) {
         DalanCircleV1 circle = findCircle(id);
         Long userId = currentUserId().orElse(null);
-        return toCircle(circle, userId == null ? Set.of() : joinedCircleIds(), userId);
+        return toCircle(circle, userId == null ? Set.of() : joinedCircleIds(), userId, OssImageStyle.CIRCLE_BANNER_1600X700);
+    }
+
+    public CirclePinnedItemsResponse circlePinnedItems(String circleId) {
+        findCircle(circleId);
+        List<DalanCirclePinnedItem> rows = pinnedItemMapper.selectList(
+            new LambdaQueryWrapper<DalanCirclePinnedItem>()
+                .eq(DalanCirclePinnedItem::getCircleId, circleId)
+                .eq(DalanCirclePinnedItem::getStatus, "published")
+                .orderByAsc(DalanCirclePinnedItem::getSortOrder)
+                .orderByDesc(DalanCirclePinnedItem::getPublishedAt)
+                .orderByDesc(DalanCirclePinnedItem::getId));
+        Set<Long> publisherIds = rows.stream().map(DalanCirclePinnedItem::getPublisherId)
+            .filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<Long, SysUser> publishers = publisherIds.isEmpty() ? Map.of()
+            : userMapper.selectBatchIds(publisherIds).stream()
+                .collect(Collectors.toMap(SysUser::getUserId, Function.identity()));
+        List<CirclePinnedItemDto> items = rows.stream()
+            .map(row -> toPinnedItem(row, publishers.get(row.getPublisherId())))
+            .toList();
+        return new CirclePinnedItemsResponse(items);
     }
 
     public FeedResponse circlePosts(String circleId, String cursor, int requestedLimit) {
@@ -386,14 +484,24 @@ public class DalanbookApiService {
             .eq(!member, DalanPostV1::getVisibility, "public"), cursor, requestedLimit);
     }
 
-    public List<TopicDto> topics(int requestedLimit) {
+    public List<TopicDto> topics(String requestedKeyword, int requestedLimit) {
         int limit = normalizeLimit(requestedLimit, 50);
-        return topicMapper.selectList(new LambdaQueryWrapper<DalanTopic>()
-                .eq(DalanTopic::getStatus, "published")
+        String keyword = DalanTopicNameNormalizer.normalizeKeyword(requestedKeyword);
+        String normalizedKeyword = keyword.toLowerCase(Locale.ROOT).replace(" ", "");
+        LambdaQueryWrapper<DalanTopic> query = new LambdaQueryWrapper<DalanTopic>()
+            .eq(DalanTopic::getStatus, "published")
+            .and(!keyword.isEmpty(), wrapper -> wrapper.like(DalanTopic::getName, keyword)
+                .or().likeRight(DalanTopic::getNormalizedName, normalizedKeyword))
                 .orderByDesc(DalanTopic::getPostCount)
                 .orderByAsc(DalanTopic::getName)
-                .last("LIMIT " + limit))
-            .stream().map(this::toTopic).toList();
+                .last("LIMIT " + limit);
+        Comparator<DalanTopic> exactMatchFirst = Comparator
+            .comparingInt(topic -> !normalizedKeyword.isEmpty()
+                && normalizedKeyword.equals(topic.getNormalizedName()) ? 0 : 1);
+        return topicMapper.selectList(query).stream()
+            .sorted(exactMatchFirst)
+            .map(this::toTopic)
+            .toList();
     }
 
     public TopicDetailDto topic(String slug, String cursor, int requestedLimit) {
@@ -439,7 +547,7 @@ public class DalanbookApiService {
         owner.setRole("owner");
         owner.setJoinedAt(now);
         memberMapper.insert(owner);
-        return toCircle(circle, Set.of(circle.getId()), userId);
+        return toCircle(circle, Set.of(circle.getId()), userId, OssImageStyle.CIRCLE_BANNER_1600X700);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -465,7 +573,7 @@ public class DalanbookApiService {
             circleMapper.changeMemberCount(circleId, -1);
             circle.setMemberCount(Math.max(0, nvl(circle.getMemberCount()) - 1));
         }
-        return toCircle(circle, joined ? Set.of(circleId) : Set.of(), userId);
+        return toCircle(circle, joined ? Set.of(circleId) : Set.of(), userId, OssImageStyle.CIRCLE_BANNER_1600X700);
     }
 
     public PostDto post(String id) {
@@ -634,9 +742,6 @@ public class DalanbookApiService {
     public PostDto createPost(CreatePostRequest request) {
         Long userId = requireUserId();
         DalanCircleV1 circle = findCircle(request.circleId());
-        if (!isMember(circle.getId(), userId)) {
-            throw new DalanApiException(HttpStatus.FORBIDDEN, "CIRCLE_MEMBERSHIP_REQUIRED", "加入圈子后才能发布帖子");
-        }
         if (!TAGS.contains(request.tag())) {
             throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_POST_TAG", "帖子标签无效");
         }
@@ -668,6 +773,7 @@ public class DalanbookApiService {
             return new StoredImage(String.valueOf(ossId), null, image.ratio());
         }).toList();
         Instant now = Instant.now();
+        joinCircleForPublishing(circle.getId(), userId, now);
         DalanPostV1 post = new DalanPostV1();
         post.setId("p_" + compactId());
         post.setAuthorId(userId);
@@ -695,8 +801,24 @@ public class DalanbookApiService {
         statsMapper.insert(stats);
         if ("published".equals(post.getStatus())) {
             incrementPublishedPostCounts(post);
+            homeFeedCacheService.evictAll();
         }
         return toPost(post, context(List.of(post)));
+    }
+
+    private void joinCircleForPublishing(String circleId, Long userId, Instant joinedAt) {
+        if (isMember(circleId, userId)) return;
+        DalanCircleMember member = new DalanCircleMember();
+        member.setCircleId(circleId);
+        member.setUserId(userId);
+        member.setRole("member");
+        member.setJoinedAt(joinedAt);
+        try {
+            memberMapper.insert(member);
+            circleMapper.changeMemberCount(circleId, 1);
+        } catch (DuplicateKeyException ignored) {
+            // Concurrent membership creation already produced the desired state.
+        }
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -711,7 +833,7 @@ public class DalanbookApiService {
             throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_REACTION_TYPE", "互动类型无效");
         }
         Long userId = requireUserId();
-        findPost(postId);
+        DalanPostV1 post = findPost(postId);
         LambdaQueryWrapper<DalanPostReaction> key = new LambdaQueryWrapper<DalanPostReaction>()
             .eq(DalanPostReaction::getPostId, postId).eq(DalanPostReaction::getUserId, userId)
             .eq(DalanPostReaction::getType, type);
@@ -722,11 +844,17 @@ public class DalanbookApiService {
             reaction.setUserId(userId);
             reaction.setType(type);
             reaction.setCreatedAt(Instant.now());
+            boolean created = false;
             try {
                 reactionMapper.insert(reaction);
                 changeReactionCount(postId, type, 1);
+                created = true;
             } catch (DuplicateKeyException ignored) {
                 // A retry raced with the first request; the desired state is already present.
+            }
+            if (created && !Objects.equals(post.getAuthorId(), userId) && Set.of("like", "favorite").contains(type)) {
+                createNotification(post.getAuthorId(), "like".equals(type) ? "post_like" : "post_favorite",
+                    Map.of("actor", notificationActor(userId), "post", notificationPost(post)));
             }
         } else if (!active && exists) {
             if (reactionMapper.delete(key) > 0) {
@@ -864,6 +992,7 @@ public class DalanbookApiService {
         CursorValue cv = decodeCursor(cursor);
         LambdaQueryWrapper<DalanNotification> query = new LambdaQueryWrapper<DalanNotification>()
             .eq(DalanNotification::getUserId, userId)
+            .in(DalanNotification::getType, MESSAGE_NOTIFICATION_TYPES)
             .and(cv != null, wrapper -> wrapper.lt(DalanNotification::getCreatedAt, cv == null ? null : cv.createdAt())
                 .or().eq(DalanNotification::getCreatedAt, cv == null ? null : cv.createdAt())
                 .lt(DalanNotification::getId, cv == null ? null : cv.id()))
@@ -897,29 +1026,59 @@ public class DalanbookApiService {
     }
 
     private FeedContext context(List<DalanPostV1> posts) {
-        if (posts.isEmpty()) return new FeedContext(Map.of(), Map.of(), Map.of(), Map.of(), Set.of(), Set.of(), Set.of());
+        if (posts.isEmpty()) return emptyFeedContext();
         Set<String> circleIds = posts.stream().map(DalanPostV1::getCircleId).collect(Collectors.toSet());
         Set<Long> authorIds = posts.stream().map(DalanPostV1::getAuthorId).collect(Collectors.toSet());
         Set<String> postIds = posts.stream().map(DalanPostV1::getId).collect(Collectors.toSet());
         Set<String> videoAssetIds = posts.stream().map(DalanPostV1::getVideoAssetId)
             .filter(Objects::nonNull).filter(value -> !value.isBlank()).collect(Collectors.toSet());
         Map<String, DalanCircleV1> circles = circleMap(circleIds);
-        Map<Long, SysUser> users = userMapper.selectBatchIds(authorIds).stream().collect(Collectors.toMap(SysUser::getUserId, Function.identity()));
+        Map<Long, DalanbookHomeFeedSnapshot.FeedAuthor> authors = userMapper.selectList(new LambdaQueryWrapper<SysUser>()
+                .select(SysUser::getUserId, SysUser::getNickName, SysUser::getAvatar)
+                .in(SysUser::getUserId, authorIds)).stream()
+            .collect(Collectors.toMap(SysUser::getUserId, user -> new DalanbookHomeFeedSnapshot.FeedAuthor(
+                user.getUserId(), user.getNickName(), user.getAvatar())));
         Map<String, DalanPostStats> stats = statsMapper.selectBatchIds(postIds).stream().collect(Collectors.toMap(DalanPostStats::getPostId, Function.identity()));
         Map<String, DalanVideoAsset> videos = videoAssetIds.isEmpty() ? Map.of() : videoAssetMapper.selectBatchIds(videoAssetIds).stream()
             .collect(Collectors.toMap(DalanVideoAsset::getId, Function.identity()));
+        return personalizedContext(posts, circles, authors, stats, videos);
+    }
+
+    private FeedContext context(DalanbookHomeFeedSnapshot snapshot) {
+        if (snapshot.getPosts().isEmpty()) {
+            return emptyFeedContext();
+        }
+        return personalizedContext(snapshot.getPosts(), snapshot.getCircles(), snapshot.getAuthors(),
+            snapshot.getStats(), snapshot.getVideos());
+    }
+
+    private FeedContext personalizedContext(List<DalanPostV1> posts, Map<String, DalanCircleV1> circles,
+                                             Map<Long, DalanbookHomeFeedSnapshot.FeedAuthor> authors,
+                                             Map<String, DalanPostStats> stats,
+                                             Map<String, DalanVideoAsset> videos) {
+        Set<String> postIds = posts.stream().map(DalanPostV1::getId).collect(Collectors.toSet());
         List<DalanPostReaction> reactions = currentUserId().map(userId -> reactionMapper.selectList(
             new LambdaQueryWrapper<DalanPostReaction>().in(DalanPostReaction::getPostId, postIds)
                 .eq(DalanPostReaction::getUserId, userId))).orElse(List.of());
         Set<String> useful = reactionIds(reactions, "useful");
         Set<String> liked = reactionIds(reactions, "like");
         Set<String> favorited = reactionIds(reactions, "favorite");
-        return new FeedContext(circles, users, stats, videos, useful, liked, favorited);
+        return new FeedContext(circles, authors, stats, videos, useful, liked, favorited);
+    }
+
+    private FeedContext emptyFeedContext() {
+        return new FeedContext(Map.of(), Map.of(), Map.of(), Map.of(), Set.of(), Set.of(), Set.of());
+    }
+
+    private FeedResponse feedResponse(List<DalanPostV1> page, boolean hasMore, FeedContext context) {
+        List<FeedItem> items = page.stream().map(post -> toFeedItem(post, context)).toList();
+        String nextCursor = hasMore && !page.isEmpty() ? encodeCursor(page.get(page.size() - 1)) : null;
+        return new FeedResponse(items, nextCursor, hasMore);
     }
 
     private FeedItem toFeedItem(DalanPostV1 post, FeedContext context) {
         DalanCircleV1 circle = context.circles().get(post.getCircleId());
-        SysUser user = context.users().get(post.getAuthorId());
+        DalanbookHomeFeedSnapshot.FeedAuthor user = context.authors().get(post.getAuthorId());
         DalanPostStats stats = context.stats().get(post.getId());
         VideoBrief video = videoBrief(post, context.videos());
         return new FeedItem(post.getId(), new Cover(coverUrl(post, video), post.getRatio(), null), post.getTag(), post.getTitle(),
@@ -932,7 +1091,7 @@ public class DalanbookApiService {
         DalanCircleV1 circle = context.circles().get(post.getCircleId());
         DalanPostStats stats = context.stats().get(post.getId());
         boolean useful = context.useful().contains(post.getId());
-        List<ImageDto> postImages = images(post.getImages());
+        List<ImageDto> postImages = images(post.getImages(), OssImageStyle.POST_DETAIL_1440);
         String cover = postImages.isEmpty() ? post.getCover() : postImages.get(0).url();
         VideoBrief video = videoBrief(post, context.videos());
         if (video != null && video.posterUrl() != null && !video.posterUrl().isBlank()) {
@@ -940,7 +1099,7 @@ public class DalanbookApiService {
         }
         return new PostDto(post.getId(), post.getTitle(), post.getContent(), postImages, cover,
             post.getRatio(), post.getTag(), postTopics(post.getId()), new CircleBrief(post.getCircleId(), circle == null ? "" : circle.getName()),
-            author(post.getAuthorId(), context.users().get(post.getAuthorId())), stats == null ? 0 : nvl(stats.getUsefulCount()),
+            author(post.getAuthorId(), context.authors().get(post.getAuthorId())), stats == null ? 0 : nvl(stats.getUsefulCount()),
             stats == null ? 0 : nvl(stats.getLikeCount()), stats == null ? 0 : nvl(stats.getCommentCount()),
             stats == null ? 0 : nvl(stats.getFavoriteCount()), useful, context.liked().contains(post.getId()),
             context.favorited().contains(post.getId()), post.getCreatedAt(), video);
@@ -965,15 +1124,29 @@ public class DalanbookApiService {
 
     private void savePostTopics(String postId, List<String> requestedTopics, Instant now, boolean countPost) {
         if (requestedTopics == null || requestedTopics.isEmpty()) return;
-        requestedTopics.stream().map(String::trim).filter(name -> !name.isEmpty()).distinct().limit(5).forEach(name -> {
+        Map<String, DalanTopicNameNormalizer.NormalizedTopicName> normalizedTopics = new LinkedHashMap<>();
+        for (String requestedTopic : requestedTopics) {
+            DalanTopicNameNormalizer.NormalizedTopicName normalizedTopic;
+            try {
+                normalizedTopic = DalanTopicNameNormalizer.normalize(requestedTopic);
+            } catch (IllegalArgumentException exception) {
+                throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_TOPIC_NAME", exception.getMessage());
+            }
+            normalizedTopics.putIfAbsent(normalizedTopic.normalizedName(), normalizedTopic);
+        }
+        if (normalizedTopics.size() > 5) {
+            throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "TOO_MANY_TOPICS", "一篇帖子最多添加 5 个话题");
+        }
+        for (DalanTopicNameNormalizer.NormalizedTopicName normalizedTopic : normalizedTopics.values()) {
             DalanTopic topic = topicMapper.selectOne(new LambdaQueryWrapper<DalanTopic>()
-                .eq(DalanTopic::getName, name).last("LIMIT 1"));
+                .eq(DalanTopic::getNormalizedName, normalizedTopic.normalizedName()).last("LIMIT 1"));
             if (topic == null) {
                 topic = new DalanTopic();
                 topic.setId("t_" + compactId());
-                topic.setSlug(topicSlug(name));
-                topic.setName(name);
-                topic.setDescription("关于 #" + name + " 的真实经验与讨论");
+                topic.setSlug(topicSlug(normalizedTopic));
+                topic.setName(normalizedTopic.displayName());
+                topic.setNormalizedName(normalizedTopic.normalizedName());
+                topic.setDescription("关于 #" + normalizedTopic.displayName() + " 的真实经验与讨论");
                 topic.setPostCount(0L);
                 topic.setStatus("published");
                 topic.setCreatedAt(now);
@@ -981,7 +1154,8 @@ public class DalanbookApiService {
                 try {
                     topicMapper.insert(topic);
                 } catch (DuplicateKeyException ignored) {
-                    topic = topicMapper.selectOne(new LambdaQueryWrapper<DalanTopic>().eq(DalanTopic::getName, name).last("LIMIT 1"));
+                    topic = topicMapper.selectOne(new LambdaQueryWrapper<DalanTopic>()
+                        .eq(DalanTopic::getNormalizedName, normalizedTopic.normalizedName()).last("LIMIT 1"));
                 }
             }
             if (topic != null) {
@@ -994,7 +1168,7 @@ public class DalanbookApiService {
                     topicMapper.changePostCount(topic.getId(), 1);
                 }
             }
-        });
+        }
     }
 
     private List<TopicDto> postTopics(String postId) {
@@ -1012,26 +1186,53 @@ public class DalanbookApiService {
             nvl(topic.getPostCount()), topic.getCreatedAt());
     }
 
-    private String topicSlug(String name) {
-        String ascii = name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-").replaceAll("(^-|-$)", "");
-        return ascii.isEmpty() ? "topic-" + DigestUtil.sha256Hex(name).substring(0, 12) : ascii;
+    private String topicSlug(DalanTopicNameNormalizer.NormalizedTopicName topicName) {
+        String hash = DigestUtil.sha256Hex(topicName.normalizedName()).substring(0, 10);
+        String ascii = topicName.normalizedName().replaceAll("[^a-z0-9]+", "-").replaceAll("(^-|-$)", "");
+        return ascii.isEmpty() ? "topic-" + hash : ascii + "-" + hash;
     }
 
     private CircleDto toCircle(DalanCircleV1 circle, Set<String> joined, Long userId) {
-        return new CircleDto(circle.getId(), circle.getName(), circle.getCover(), circle.getDescription(), circle.getCategory(),
+        return toCircle(circle, joined, userId, OssImageStyle.CIRCLE_CARD_720X405);
+    }
+
+    private CircleDto toCircle(DalanCircleV1 circle, Set<String> joined, Long userId, OssImageStyle imageStyle) {
+        return new CircleDto(circle.getId(), circle.getName(), assetUrl(parseNullableOssId(circle.getCover()), circle.getCover(), imageStyle),
+            circle.getDescription(), circle.getCategory(),
             strings(circle.getTags()), nvl(circle.getMemberCount()), nvl(circle.getPostCount()), joined.contains(circle.getId()),
             userId != null && Objects.equals(circle.getOwnerId(), userId), String.valueOf(circle.getOwnerId()), circle.getCreatedAt());
     }
 
+    private CirclePinnedItemDto toPinnedItem(DalanCirclePinnedItem item, SysUser publisher) {
+        List<PinnedImage> images = JsonUtils.parseArray(item.getImages(), String.class).stream()
+            .map(ossId -> new PinnedImage(ossId, assetUrl(parseNullableOssId(ossId), null, OssImageStyle.POST_DETAIL_1440)))
+            .toList();
+        String publisherName = publisher == null || publisher.getNickName() == null
+            ? "圈子管理员" : publisher.getNickName();
+        return new CirclePinnedItemDto(item.getId(), item.getKind(), item.getTitle(), item.getContent(), images,
+            new PinnedPublisher(String.valueOf(item.getPublisherId()), publisherName), nvl(item.getViewCount()),
+            item.getActivityStatus(), item.getPublishedAt(), item.getPublishedAt());
+    }
+
     private Author author(Long id, SysUser user) {
-        String name = user == null || user.getNickName() == null ? "大蓝书用户" : user.getNickName();
-        return new Author(String.valueOf(id), name, user == null ? null : avatarUrl(user.getAvatar()), avatarColor(id));
+        return author(id, user == null ? null : new DalanbookHomeFeedSnapshot.FeedAuthor(
+            user.getUserId(), user.getNickName(), user.getAvatar()));
+    }
+
+    private Author author(Long id, DalanbookHomeFeedSnapshot.FeedAuthor user) {
+        String name = user == null || user.getNickname() == null ? "大蓝书用户" : user.getNickname();
+        return new Author(String.valueOf(id), name,
+            user == null ? null : avatarUrl(user.getAvatarOssId(), OssImageStyle.AVATAR_128), avatarColor(id));
     }
 
     private String avatarUrl(Long ossId) {
+        return avatarUrl(ossId, OssImageStyle.AVATAR_256);
+    }
+
+    private String avatarUrl(Long ossId, OssImageStyle imageStyle) {
         if (ossId == null) return null;
         try {
-            return ossService.getAccessUrl(ossId);
+            return ossService.getImageAccessUrl(ossId, imageStyle);
         } catch (RuntimeException ignored) {
             return null;
         }
@@ -1139,15 +1340,20 @@ public class DalanbookApiService {
         List<DalanPostV1> posts = postMapper.selectList(new LambdaQueryWrapper<DalanPostV1>()
             .eq(DalanPostV1::getVideoAssetId, assetId)
             .eq(DalanPostV1::getStatus, "media_processing"));
+        boolean published = false;
         for (DalanPostV1 post : posts) {
             post.setStatus("published");
             post.setUpdatedAt(Instant.now());
             if (postMapper.updateById(post) > 0) {
+                published = true;
                 incrementPublishedPostCounts(post);
                 postTopicMapper.selectList(new LambdaQueryWrapper<DalanPostTopic>()
                         .eq(DalanPostTopic::getPostId, post.getId()))
                     .forEach(topic -> topicMapper.changePostCount(topic.getTopicId(), 1));
             }
+        }
+        if (published) {
+            homeFeedCacheService.evictAll();
         }
     }
 
@@ -1162,7 +1368,9 @@ public class DalanbookApiService {
 
     private long unreadCount(Long userId) {
         return notificationMapper.selectCount(new LambdaQueryWrapper<DalanNotification>()
-            .eq(DalanNotification::getUserId, userId).isNull(DalanNotification::getReadAt));
+            .eq(DalanNotification::getUserId, userId)
+            .in(DalanNotification::getType, MESSAGE_NOTIFICATION_TYPES)
+            .isNull(DalanNotification::getReadAt));
     }
 
     private void ensureProfile(Long userId) {
@@ -1200,6 +1408,86 @@ public class DalanbookApiService {
         return requested <= 0 ? 20 : Math.min(requested, max);
     }
 
+    private CursorPage<UserDto> userRelations(Long userId, String cursor, int requestedLimit,
+                                               boolean followers) {
+        user(userId);
+        int limit = normalizeLimit(requestedLimit, 50);
+        CursorValue cv = decodeCursor(cursor);
+        Long cursorUserId = null;
+        if (cv != null) {
+            try {
+                cursorUserId = Long.valueOf(cv.id());
+            } catch (NumberFormatException exception) {
+                throw new DalanApiException(HttpStatus.BAD_REQUEST, "INVALID_CURSOR", "cursor 无效或已失效");
+            }
+        }
+
+        LambdaQueryWrapper<DalanFollow> query = new LambdaQueryWrapper<>();
+        if (followers) {
+            query.eq(DalanFollow::getFolloweeId, userId);
+            if (cv != null) {
+                Long finalCursorUserId = cursorUserId;
+                query.and(wrapper -> wrapper.lt(DalanFollow::getCreatedAt, cv.createdAt())
+                    .or(nested -> nested.eq(DalanFollow::getCreatedAt, cv.createdAt())
+                        .lt(DalanFollow::getFollowerId, finalCursorUserId)));
+            }
+            query.orderByDesc(DalanFollow::getCreatedAt).orderByDesc(DalanFollow::getFollowerId);
+        } else {
+            query.eq(DalanFollow::getFollowerId, userId);
+            if (cv != null) {
+                Long finalCursorUserId = cursorUserId;
+                query.and(wrapper -> wrapper.lt(DalanFollow::getCreatedAt, cv.createdAt())
+                    .or(nested -> nested.eq(DalanFollow::getCreatedAt, cv.createdAt())
+                        .lt(DalanFollow::getFolloweeId, finalCursorUserId)));
+            }
+            query.orderByDesc(DalanFollow::getCreatedAt).orderByDesc(DalanFollow::getFolloweeId);
+        }
+        query.last("LIMIT " + (limit + 1));
+
+        List<DalanFollow> rows = followMapper.selectList(query);
+        boolean hasMore = rows.size() > limit;
+        List<DalanFollow> page = hasMore ? rows.subList(0, limit) : rows;
+        List<Long> relatedUserIds = page.stream()
+            .map(row -> followers ? row.getFollowerId() : row.getFolloweeId())
+            .toList();
+        List<UserDto> items = relationUsers(relatedUserIds);
+        DalanFollow last = page.isEmpty() ? null : page.get(page.size() - 1);
+        String nextCursor = hasMore && last != null
+            ? encodeCursor(last.getCreatedAt(), String.valueOf(followers ? last.getFollowerId() : last.getFolloweeId()))
+            : null;
+        return new CursorPage<>(items, nextCursor, hasMore);
+    }
+
+    private List<UserDto> relationUsers(List<Long> userIds) {
+        if (userIds.isEmpty()) return List.of();
+        Map<Long, SysUser> users = userMapper.selectBatchIds(userIds).stream()
+            .filter(user -> !"1".equals(user.getDelFlag()))
+            .collect(Collectors.toMap(SysUser::getUserId, Function.identity()));
+        Map<Long, DalanUserProfile> profiles = profileMapper.selectBatchIds(userIds).stream()
+            .collect(Collectors.toMap(DalanUserProfile::getUserId, Function.identity()));
+        Set<Long> followedIds = currentUserId().map(currentId -> followMapper.selectList(
+                new LambdaQueryWrapper<DalanFollow>()
+                    .eq(DalanFollow::getFollowerId, currentId)
+                    .in(DalanFollow::getFolloweeId, userIds)).stream()
+            .map(DalanFollow::getFolloweeId)
+            .collect(Collectors.toSet())).orElse(Set.of());
+        return userIds.stream()
+            .map(users::get)
+            .filter(Objects::nonNull)
+            .map(user -> toUserDto(user, profiles.get(user.getUserId()), followedIds.contains(user.getUserId())))
+            .toList();
+    }
+
+    private UserDto toUserDto(SysUser user, DalanUserProfile profile, boolean following) {
+        Instant createdAt = user.getCreateTime() == null ? null : user.getCreateTime().toInstant();
+        return new UserDto(String.valueOf(user.getUserId()), user.getNickName(),
+            avatarUrl(user.getAvatar(), OssImageStyle.AVATAR_256),
+            profile == null ? "" : profile.getBio(), profile == null ? sex(user.getSex()) : profile.getGender(),
+            profile == null ? "" : profile.getLocation(), profile == null ? 0 : nvl(profile.getFollowerCount()),
+            profile == null ? 0 : nvl(profile.getFollowingCount()), profile == null ? 0 : nvl(profile.getPostCount()),
+            following, createdAt);
+    }
+
     private CursorValue decodeCursor(String cursor) {
         if (cursor == null || cursor.isBlank()) return null;
         try {
@@ -1221,10 +1509,11 @@ public class DalanbookApiService {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
     }
 
-    private List<ImageDto> images(String json) {
+    private List<ImageDto> images(String json, OssImageStyle imageStyle) {
         if (json == null || json.isBlank()) return List.of();
         return JsonUtils.parseArray(json, StoredImage.class).stream()
-            .map(image -> new ImageDto(image.ossId(), assetUrl(parseNullableOssId(image.ossId()), image.url()), image.ratio()))
+            .map(image -> new ImageDto(image.ossId(),
+                assetUrl(parseNullableOssId(image.ossId()), image.url(), imageStyle), image.ratio()))
             .toList();
     }
 
@@ -1236,13 +1525,20 @@ public class DalanbookApiService {
         List<StoredImage> storedImages = JsonUtils.parseArray(post.getImages(), StoredImage.class);
         if (storedImages.isEmpty()) return post.getCover();
         StoredImage first = storedImages.get(0);
-        return assetUrl(parseNullableOssId(first.ossId()), first.url() == null ? post.getCover() : first.url());
+        return assetUrl(parseNullableOssId(first.ossId()), first.url() == null ? post.getCover() : first.url(),
+            OssImageStyle.POST_FEED_720);
     }
 
     private String assetUrl(Long ossId, String legacyUrl) {
+        return assetUrl(ossId, legacyUrl, null);
+    }
+
+    private String assetUrl(Long ossId, String legacyUrl, OssImageStyle imageStyle) {
         if (ossId == null) return legacyUrl;
         try {
-            String url = ossService.getAccessUrl(ossId);
+            String url = imageStyle == null
+                ? ossService.getAccessUrl(ossId)
+                : ossService.getImageAccessUrl(ossId, imageStyle);
             return url == null ? legacyUrl : url;
         } catch (RuntimeException ignored) {
             return legacyUrl;
@@ -1371,6 +1667,17 @@ public class DalanbookApiService {
         return actor;
     }
 
+    private Map<String, Object> notificationPost(DalanPostV1 post) {
+        Map<String, Object> notificationPost = new HashMap<>();
+        notificationPost.put("id", post.getId());
+        notificationPost.put("title", post.getTitle());
+        String cover = coverUrl(post, null);
+        if (cover != null && !cover.isBlank()) {
+            notificationPost.put("cover", cover);
+        }
+        return notificationPost;
+    }
+
     private long nvl(Long value) { return value == null ? 0 : value; }
     private MyProfileDto toMyProfile(SysUser user, DalanUserProfile profile) {
         DalanUserDevice latest = deviceMapper.selectOne(new LambdaQueryWrapper<DalanUserDevice>()
@@ -1386,6 +1693,13 @@ public class DalanbookApiService {
             device.getOsVersion(), device.getBrowser(), device.getBrowserVersion(), device.getLastSeenAt());
     }
     private String clean(String value) { return value == null ? "" : value.trim(); }
+    private String searchQuery(String value) {
+        String query = clean(value);
+        if (query.isEmpty()) {
+            throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "EMPTY_SEARCH_QUERY", "搜索关键词不能为空");
+        }
+        return query.replace("%", "\\%").replace("_", "\\_");
+    }
     private String emptyToNull(String value) { return value == null || value.isBlank() ? null : value; }
     private String defaultValue(String value, String fallback) { return value == null || value.isBlank() ? fallback : value.trim(); }
     private String location(String province, String city) {
@@ -1405,7 +1719,8 @@ public class DalanbookApiService {
 
     private record CursorValue(Instant createdAt, String id) {}
     private record StoredImage(String ossId, String url, String ratio) {}
-    private record FeedContext(Map<String, DalanCircleV1> circles, Map<Long, SysUser> users,
+    private record FeedContext(Map<String, DalanCircleV1> circles,
+                               Map<Long, DalanbookHomeFeedSnapshot.FeedAuthor> authors,
                                Map<String, DalanPostStats> stats, Map<String, DalanVideoAsset> videos, Set<String> useful,
                                Set<String> liked, Set<String> favorited) {}
 }

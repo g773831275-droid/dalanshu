@@ -1,8 +1,12 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { Loader2, X } from "lucide-react";
+import { Camera, Loader2, X } from "lucide-react";
 import { AGE_RANGE_OPTIONS, CHINA_PROVINCES } from "@/data/regions";
 import { updateMyProfile, type MyProfile, type UpdateProfileInput } from "@/lib/authApi";
+import { uploadImage } from "@/lib/dalanbookApi";
+
+const AVATAR_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const MAX_AVATAR_SIZE = 10 * 1024 * 1024;
 
 export function ProfileEditorDialog({
     open,
@@ -16,15 +20,26 @@ export function ProfileEditorDialog({
     onSaved: (profile: MyProfile) => void;
 }) {
     const [form, setForm] = useState<UpdateProfileInput>(() => toForm(profile));
+    const [avatarFile, setAvatarFile] = useState<File | null>(null);
+    const [avatarPreview, setAvatarPreview] = useState(profile.avatar ?? "");
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
 
     useEffect(() => {
         if (open) {
             setForm(toForm(profile));
+            setAvatarFile(null);
+            setAvatarPreview(profile.avatar ?? "");
             setError("");
         }
     }, [open, profile]);
+
+    useEffect(
+        () => () => {
+            if (avatarPreview.startsWith("blob:")) URL.revokeObjectURL(avatarPreview);
+        },
+        [avatarPreview],
+    );
 
     if (!open) return null;
 
@@ -36,8 +51,13 @@ export function ProfileEditorDialog({
         setSaving(true);
         setError("");
         try {
-            const saved = await updateMyProfile(form);
-            onSaved(saved);
+            const input = { ...form };
+            if (avatarFile) {
+                const uploaded = await uploadImage(avatarFile);
+                input.avatarOssId = uploaded.ossId;
+            }
+            const saved = await updateMyProfile(input);
+            onSaved(avatarFile && !saved.avatar ? { ...saved, avatar: avatarPreview } : saved);
             onClose();
         } catch (reason) {
             setError(reason instanceof Error ? reason.message : "保存失败，请稍后重试");
@@ -68,6 +88,52 @@ export function ProfileEditorDialog({
                     >
                         <X className="h-4 w-4" />
                     </button>
+                </div>
+
+                <div className="mt-6 flex items-center gap-4 rounded-[16px] border border-[color:var(--border)] bg-black/[0.015] p-4">
+                    <span className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#245BDB] text-[24px] font-semibold text-white shadow-[var(--shadow-subtle)]">
+                        {avatarPreview ? (
+                            <img
+                                src={avatarPreview}
+                                alt="头像预览"
+                                className="h-full w-full object-cover"
+                            />
+                        ) : (
+                            form.nickname.trim().slice(0, 1) || "我"
+                        )}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                        <div className="text-[13.5px] font-medium text-foreground">个人头像</div>
+                        <p className="mt-1 text-[12px] leading-5 text-text-tertiary">
+                            支持 JPEG、PNG、WebP、GIF，文件不超过 10MB。
+                        </p>
+                        <label className="mt-2 inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-[10px] border border-[color:var(--border-default)] bg-white px-3 text-[12.5px] font-medium text-text-secondary transition-colors hover:text-foreground">
+                            <Camera className="h-3.5 w-3.5" strokeWidth={1.75} />
+                            {avatarFile ? "重新选择" : "选择头像"}
+                            <input
+                                type="file"
+                                accept="image/jpeg,image/png,image/webp,image/gif"
+                                className="sr-only"
+                                disabled={saving}
+                                onChange={(event) => {
+                                    const file = event.target.files?.[0];
+                                    event.target.value = "";
+                                    if (!file) return;
+                                    if (!AVATAR_TYPES.has(file.type)) {
+                                        setError("头像仅支持 JPEG、PNG、WebP、GIF 图片");
+                                        return;
+                                    }
+                                    if (!file.size || file.size > MAX_AVATAR_SIZE) {
+                                        setError("头像图片不能为空且不能超过 10MB");
+                                        return;
+                                    }
+                                    setError("");
+                                    setAvatarFile(file);
+                                    setAvatarPreview(URL.createObjectURL(file));
+                                }}
+                            />
+                        </label>
+                    </div>
                 </div>
 
                 <div className="mt-6 grid gap-4 md:grid-cols-2">
@@ -164,6 +230,7 @@ export function ProfileEditorDialog({
                 <div className="mt-6 flex gap-3">
                     <button
                         onClick={onClose}
+                        disabled={saving}
                         className="h-11 flex-1 rounded-[13px] border border-[color:var(--border-default)] text-[13.5px] font-medium"
                     >
                         取消
@@ -173,7 +240,8 @@ export function ProfileEditorDialog({
                         disabled={saving}
                         className="flex h-11 flex-1 items-center justify-center gap-2 rounded-[13px] bg-foreground text-[13.5px] font-medium text-white disabled:opacity-60"
                     >
-                        {saving && <Loader2 className="h-4 w-4 animate-spin" />}保存
+                        {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                        {saving && avatarFile ? "上传并保存中…" : saving ? "保存中…" : "保存"}
                     </button>
                 </div>
             </div>

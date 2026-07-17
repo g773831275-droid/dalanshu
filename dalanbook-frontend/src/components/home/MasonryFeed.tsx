@@ -1,15 +1,10 @@
 import { useEffect, useRef } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { useAuthUser } from "@/lib/authStore";
-import {
-  getHomeCircleRecommendation,
-  getHomeFeed,
-  type HomeFeedItem,
-} from "@/lib/homeApi";
+import { getHomeFeed, type HomeFeedItem } from "@/lib/homeApi";
 import type { HomeChannel } from "@/lib/homeUi";
 import type { Post } from "@/data/mockPosts";
 import { PostCard } from "./PostCard";
-import { CircleRecCard } from "./CircleRecCard";
 
 function toPost(item: HomeFeedItem): Post {
   return {
@@ -21,6 +16,7 @@ function toPost(item: HomeFeedItem): Post {
     circleId: item.circle.id,
     circle: item.circle.name,
     title: item.title,
+    authorId: item.author.id,
     author: item.author.name,
     avatarUrl: item.author.avatarUrl ?? undefined,
     avatarColor: item.author.avatarColor ?? "#5E6B7F",
@@ -55,12 +51,6 @@ export function MasonryFeed({ categoryId, channel }: { categoryId: string; chann
       lastPage.hasMore ? (lastPage.nextCursor ?? undefined) : undefined,
     staleTime: 30_000,
   });
-  const { data: recommendation } = useQuery({
-    queryKey: ["home", "circle-recommend", categoryId, user?.id ?? "anonymous"],
-    queryFn: () => getHomeCircleRecommendation(categoryId),
-    staleTime: 5 * 60_000,
-  });
-
   const posts = (data?.pages.flatMap((page) => page.items) ?? []).map(toPost);
 
   useEffect(() => {
@@ -97,27 +87,15 @@ export function MasonryFeed({ categoryId, channel }: { categoryId: string; chann
   }
   if (posts.length === 0) {
     return (
-      <div className="py-16 text-center text-sm text-text-tertiary">
-        这个频道暂时没有帖子。
-      </div>
+      <div className="py-16 text-center text-sm text-text-tertiary">这个频道暂时没有帖子。</div>
     );
   }
 
   return (
     <>
       <div className="columns-2 gap-2.5 md:columns-3 md:gap-4 xl:columns-4 2xl:columns-5">
-        {posts.map((post, index) => (
-          <div key={post.id} className="contents">
-            <PostCard post={post} />
-            {recommendation?.circle && index === recommendation.insertAfterIndex ? (
-              <CircleRecCard
-                id={recommendation.circle.id}
-                name={recommendation.circle.name}
-                desc={recommendation.circle.desc}
-                members={recommendation.circle.membersText}
-              />
-            ) : null}
-          </div>
+        {posts.map((post) => (
+          <PostCard key={post.id} post={post} />
         ))}
       </div>
       <div ref={loadMoreRef} className="py-6 text-center text-xs text-text-tertiary">

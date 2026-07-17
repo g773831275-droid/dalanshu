@@ -76,6 +76,14 @@ public interface ISysUserService {
     SysUserVo selectUserById(Long userId);
 
     /**
+     * 通过用户ID查询用户及大蓝树扩展资料
+     *
+     * @param userId 用户ID
+     * @return 用户及扩展资料
+     */
+    SysUserVo selectUserDetailById(Long userId);
+
+    /**
      * 通过用户ID串查询用户
      *
      * @param userIds 用户ID串

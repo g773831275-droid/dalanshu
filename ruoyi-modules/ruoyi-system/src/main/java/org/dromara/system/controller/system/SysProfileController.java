@@ -49,7 +49,7 @@ public class SysProfileController extends BaseController {
      */
     @GetMapping
     public R<ProfileVo> profile() {
-        SysUserVo user = userService.selectUserById(LoginHelper.getUserId());
+        SysUserVo user = userService.selectUserDetailById(LoginHelper.getUserId());
         String roleGroup = userService.selectUserRoleGroup(user.getUserId());
         String postGroup = userService.selectUserPostGroup(user.getUserId());
         // 单独做一个vo专门给个人中心用 避免数据被脱敏

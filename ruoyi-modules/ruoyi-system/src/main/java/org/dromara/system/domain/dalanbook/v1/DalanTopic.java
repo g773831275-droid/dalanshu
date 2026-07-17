@@ -13,6 +13,7 @@ public class DalanTopic {
     private String id;
     private String slug;
     private String name;
+    private String normalizedName;
     private String description;
     private Long postCount;
     private String status;

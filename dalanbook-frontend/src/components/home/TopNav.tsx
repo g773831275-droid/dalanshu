@@ -1,10 +1,12 @@
-import { LogOut } from "lucide-react";
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Bell, LogOut } from "lucide-react";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { Logo } from "@/components/brand/Logo";
 import { HomeSearch } from "@/components/home/HomeSearch";
 import { authStore, useAuthUser } from "@/lib/authStore";
 import { logout, reportWebDevice } from "@/lib/authApi";
+import { getNotificationUnreadCount } from "@/lib/notificationApi";
 
 const navItems = [
     { label: "首页", href: "/" as const },
@@ -14,7 +16,16 @@ const navItems = [
 
 export function TopNav() {
     const pathname = useRouterState({ select: (s) => s.location.pathname });
+    const navigate = useNavigate();
+    const queryClient = useQueryClient();
     const user = useAuthUser();
+    const { data: unreadCount = 0 } = useQuery({
+        queryKey: ["dalanbook", "notifications", "unread-count"],
+        queryFn: getNotificationUnreadCount,
+        enabled: !!user,
+        staleTime: 15_000,
+        refetchInterval: user ? 60_000 : false,
+    });
     useEffect(() => {
         if (user) void reportWebDevice().catch(() => undefined);
     }, [user?.id]);
@@ -50,27 +61,54 @@ export function TopNav() {
                     {user ? (
                         <>
                             <Link
+                                to="/messages"
+                                className="relative flex h-9 w-9 items-center justify-center rounded-[10px] text-text-tertiary transition-colors hover:bg-black/[0.04] hover:text-foreground"
+                                aria-label={
+                                    unreadCount > 0 ? `消息，${unreadCount} 条未读` : "消息"
+                                }
+                                title="消息"
+                            >
+                                <Bell className="h-[17px] w-[17px]" strokeWidth={1.75} />
+                                {unreadCount > 0 ? (
+                                    <span className="absolute right-0.5 top-0.5 flex min-w-4 items-center justify-center rounded-full bg-[#D85656] px-1 text-[9px] font-semibold leading-4 text-white">
+                                        {unreadCount > 99 ? "99+" : unreadCount}
+                                    </span>
+                                ) : null}
+                            </Link>
+                            <Link
                                 to="/u/$id"
                                 params={{ id: "me" }}
                                 className="ml-1 flex h-9 items-center gap-2 rounded-[10px] px-2 text-[13px] font-medium text-foreground transition-colors hover:bg-black/[0.04]"
                             >
-                                <span
-                                    className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground text-[11px] font-semibold text-white"
-                                    aria-hidden
-                                >
-                                    {user.name.slice(0, 1)}
-                                </span>
+                                {user.avatar ? (
+                                    <img
+                                        src={user.avatar}
+                                        alt=""
+                                        className="h-7 w-7 rounded-full object-cover"
+                                    />
+                                ) : (
+                                    <span
+                                        className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground text-[11px] font-semibold text-white"
+                                        aria-hidden
+                                    >
+                                        {user.name.slice(0, 1)}
+                                    </span>
+                                )}
                                 <span className="max-w-[80px] truncate">{user.name}</span>
                             </Link>
                             <button
                                 onClick={() => {
-                                    void logout().finally(() => authStore.set(null));
+                                    void logout().finally(() => {
+                                        queryClient.clear();
+                                        void navigate({ to: "/" });
+                                    });
                                 }}
-                                className="flex h-9 w-9 items-center justify-center rounded-[10px] text-text-tertiary transition-colors hover:bg-black/[0.04] hover:text-foreground"
+                                className="flex h-9 items-center gap-1.5 rounded-[10px] px-2.5 text-[12.5px] text-text-tertiary transition-colors hover:bg-black/[0.04] hover:text-foreground"
                                 aria-label="退出登录"
                                 title="退出登录"
                             >
                                 <LogOut className="h-[15px] w-[15px]" strokeWidth={1.75} />
+                                退出
                             </button>
                         </>
                     ) : (

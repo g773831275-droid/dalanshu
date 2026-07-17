@@ -1,6 +1,6 @@
 import { circles } from "@/data/mockCircles";
 import { posts } from "@/data/mockPosts";
-import { getMockCircle } from "@/lib/circleApi.mock";
+import { getMockCircle, setMockCircleMembership } from "@/lib/circleApi.mock";
 import type {
     ApiComment,
     ApiPost,
@@ -260,7 +260,10 @@ export async function publishMockPost(input: PublishPostInput): Promise<ApiPost>
         throw new Error("图片比例无效");
     }
     if ((input.topics?.length ?? 0) > 5) throw new Error("话题数量不能超过 5 个");
-    const circle = await getMockCircle(input.circleId);
+    let circle = await getMockCircle(input.circleId);
+    if (!circle.isJoined) {
+        circle = await setMockCircleMembership(circle.id, true);
+    }
     const video = input.videoAssetId ? requireVideoAsset(input.videoAssetId) : undefined;
     const id = `mock-post-${Date.now()}`;
     const createdAt = new Date().toISOString();

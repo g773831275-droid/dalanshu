@@ -1,5 +1,8 @@
 import { Home, Compass, Plus, User, Bell } from "lucide-react";
 import { Link, useRouterState } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { authStore, useAuthUser } from "@/lib/authStore";
+import { getNotificationUnreadCount } from "@/lib/notificationApi";
 
 type Item = { icon: typeof Home; label: string; to: string };
 
@@ -14,6 +17,14 @@ const rightTabs: Item[] = [
 
 export function MobileBottomNav() {
     const pathname = useRouterState({ select: (s) => s.location.pathname });
+    const user = useAuthUser();
+    const { data: unreadCount = 0 } = useQuery({
+        queryKey: ["dalanbook", "notifications", "unread-count"],
+        queryFn: getNotificationUnreadCount,
+        enabled: !!user,
+        staleTime: 15_000,
+        refetchInterval: user ? 60_000 : false,
+    });
     const isActive = (to: string) => (to === "/" ? pathname === "/" : pathname.startsWith(to));
 
     return (
@@ -33,7 +44,22 @@ export function MobileBottomNav() {
                     ))}
                     <div aria-hidden />
                     {rightTabs.map((t) => (
-                        <Tab key={t.label} {...t} active={isActive(t.to)} />
+                        <Tab
+                            key={t.label}
+                            {...t}
+                            active={isActive(t.to)}
+                            badge={t.to === "/messages" ? unreadCount : 0}
+                            onClick={
+                                t.to === "/u/me" && !user
+                                    ? () =>
+                                          authStore.openAuth({
+                                              tab: "login",
+                                              redirect: "/u/me",
+                                              action: "查看个人主页",
+                                          })
+                                    : undefined
+                            }
+                        />
                     ))}
                 </div>
             </nav>
@@ -41,17 +67,40 @@ export function MobileBottomNav() {
     );
 }
 
-function Tab({ icon: Icon, label, to, active }: Item & { active?: boolean }) {
-    return (
-        <Link
-            to={to}
-            className={
-                "flex flex-col items-center justify-center gap-0.5 text-[10.5px] " +
-                (active ? "text-foreground" : "text-text-tertiary")
-            }
-        >
-            <Icon className="h-[19px] w-[19px]" strokeWidth={active ? 2 : 1.75} />
+function Tab({
+    icon: Icon,
+    label,
+    to,
+    active,
+    badge = 0,
+    onClick,
+}: Item & { active?: boolean; badge?: number; onClick?: () => void }) {
+    const className =
+        "flex flex-col items-center justify-center gap-0.5 text-[10.5px] " +
+        (active ? "text-foreground" : "text-text-tertiary");
+    const content = (
+        <>
+            <span className="relative">
+                <Icon className="h-[19px] w-[19px]" strokeWidth={active ? 2 : 1.75} />
+                {badge > 0 ? (
+                    <span className="absolute -right-3 -top-2 flex min-w-4 items-center justify-center rounded-full bg-[#D85656] px-1 text-[9px] font-semibold leading-4 text-white">
+                        {badge > 99 ? "99+" : badge}
+                    </span>
+                ) : null}
+            </span>
             {label}
+        </>
+    );
+    if (onClick) {
+        return (
+            <button type="button" onClick={onClick} className={className}>
+                {content}
+            </button>
+        );
+    }
+    return (
+        <Link to={to} className={className}>
+            {content}
         </Link>
     );
 }
