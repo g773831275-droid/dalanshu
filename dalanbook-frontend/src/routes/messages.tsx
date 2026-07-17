@@ -1,5 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+    useInfiniteQuery,
+    useMutation,
+    useQuery,
+    useQueryClient,
+    type InfiniteData,
+} from "@tanstack/react-query";
 import { Bell, Bookmark, Heart, Loader2, UserPlus } from "lucide-react";
 import { TopNav } from "@/components/home/TopNav";
 import { MobileTopBar } from "@/components/home/MobileTopBar";
@@ -10,6 +16,7 @@ import {
     getNotificationUnreadCount,
     markNotificationRead,
     type NotificationItem,
+    type NotificationPage,
 } from "@/lib/notificationApi";
 
 const PAGE_SIZE = 20;
@@ -151,11 +158,73 @@ function MessagesPage() {
     });
     const markRead = useMutation({
         mutationFn: markNotificationRead,
-        onSuccess: async () => {
+        onMutate: async (id) => {
             await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ["dalanbook", "notifications"] }),
+                queryClient.cancelQueries({
+                    queryKey: ["dalanbook", "notifications"],
+                    exact: true,
+                }),
+                queryClient.cancelQueries({
+                    queryKey: ["dalanbook", "notifications", "unread-count"],
+                    exact: true,
+                }),
+            ]);
+            const previousPage = queryClient.getQueryData<InfiniteData<NotificationPage>>([
+                "dalanbook",
+                "notifications",
+            ]);
+            const previousUnreadCount = queryClient.getQueryData<number>([
+                "dalanbook",
+                "notifications",
+                "unread-count",
+            ]);
+            let changed = false;
+            const readAt = new Date().toISOString();
+            queryClient.setQueryData<InfiniteData<NotificationPage>>(
+                ["dalanbook", "notifications"],
+                (current) =>
+                    current
+                        ? {
+                              ...current,
+                              pages: current.pages.map((page) => ({
+                                  ...page,
+                                  items: page.items.map((item) => {
+                                      if (item.id !== id || item.readAt) return item;
+                                      changed = true;
+                                      return { ...item, readAt };
+                                  }),
+                              })),
+                          }
+                        : current,
+            );
+            if (changed) {
+                queryClient.setQueryData<number>(
+                    ["dalanbook", "notifications", "unread-count"],
+                    (current = 0) => Math.max(0, current - 1),
+                );
+            }
+            return { previousPage, previousUnreadCount };
+        },
+        onError: (_error, _id, context) => {
+            if (context?.previousPage) {
+                queryClient.setQueryData(["dalanbook", "notifications"], context.previousPage);
+            }
+            if (context?.previousUnreadCount !== undefined) {
+                queryClient.setQueryData(
+                    ["dalanbook", "notifications", "unread-count"],
+                    context.previousUnreadCount,
+                );
+            }
+        },
+        onSettled: async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({
+                    queryKey: ["dalanbook", "notifications"],
+                    exact: true,
+                }),
                 queryClient.invalidateQueries({
                     queryKey: ["dalanbook", "notifications", "unread-count"],
+                    exact: true,
                 }),
             ]);
         },

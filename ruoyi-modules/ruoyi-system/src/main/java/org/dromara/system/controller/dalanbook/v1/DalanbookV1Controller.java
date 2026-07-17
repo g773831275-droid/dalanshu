@@ -4,7 +4,9 @@ import cn.dev33.satoken.annotation.SaIgnore;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.dromara.common.ratelimiter.annotation.RateLimiter;
 import org.dromara.system.controller.dalanbook.v1.DalanbookDtos.*;
@@ -65,6 +67,23 @@ public class DalanbookV1Controller {
         return service.suggestions(q);
     }
 
+    @SaIgnore
+    @GetMapping("/search/posts")
+    public FeedResponse searchPosts(@RequestParam @NotBlank @Size(max = 100) String q,
+                                    @RequestParam(required = false) String cursor,
+                                    @RequestParam(defaultValue = "20") @Min(1) @Max(40) int limit) {
+        return service.searchPosts(q, cursor, limit);
+    }
+
+    @SaIgnore
+    @GetMapping("/search/circles")
+    public CursorPage<CircleDto> searchCircles(@RequestParam @NotBlank @Size(max = 100) String q,
+                                                @RequestParam(required = false) String category,
+                                                @RequestParam(required = false) String cursor,
+                                                @RequestParam(defaultValue = "20") @Min(1) @Max(50) int limit) {
+        return service.searchCircles(q, category, cursor, limit);
+    }
+
     @GetMapping("/me/summary")
     public MeSummary meSummary() {
         return service.meSummary();
@@ -102,6 +121,22 @@ public class DalanbookV1Controller {
     }
 
     @SaIgnore
+    @GetMapping("/users/{id}/followers")
+    public CursorPage<UserDto> followers(@PathVariable Long id,
+                                         @RequestParam(required = false) String cursor,
+                                         @RequestParam(defaultValue = "20") @Min(1) @Max(50) int limit) {
+        return service.userFollowers(id, cursor, limit);
+    }
+
+    @SaIgnore
+    @GetMapping("/users/{id}/following")
+    public CursorPage<UserDto> following(@PathVariable Long id,
+                                         @RequestParam(required = false) String cursor,
+                                         @RequestParam(defaultValue = "20") @Min(1) @Max(50) int limit) {
+        return service.userFollowing(id, cursor, limit);
+    }
+
+    @SaIgnore
     @GetMapping("/users/{id}/posts")
     public FeedResponse userPosts(@PathVariable Long id,
                                   @RequestParam(required = false) String cursor,
@@ -136,6 +171,12 @@ public class DalanbookV1Controller {
     }
 
     @SaIgnore
+    @GetMapping("/circles/{id}/pinned-items")
+    public CirclePinnedItemsResponse circlePinnedItems(@PathVariable String id) {
+        return service.circlePinnedItems(id);
+    }
+
+    @SaIgnore
     @GetMapping("/circles/{id}/posts")
     public FeedResponse circlePosts(@PathVariable String id,
                                     @RequestParam(required = false) String cursor,
@@ -150,8 +191,9 @@ public class DalanbookV1Controller {
 
     @SaIgnore
     @GetMapping("/topics")
-    public List<TopicDto> topics(@RequestParam(defaultValue = "20") @Min(1) @Max(50) int limit) {
-        return service.topics(limit);
+    public List<TopicDto> topics(@RequestParam(required = false) String keyword,
+                                 @RequestParam(defaultValue = "20") @Min(1) @Max(50) int limit) {
+        return service.topics(keyword, limit);
     }
 
     @SaIgnore

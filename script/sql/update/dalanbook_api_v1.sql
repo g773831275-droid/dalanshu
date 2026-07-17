@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS `dalan_topic` (
   `id` varchar(64) NOT NULL,
   `slug` varchar(80) NOT NULL,
   `name` varchar(40) NOT NULL,
+  `normalized_name` varchar(80) DEFAULT NULL,
   `description` varchar(300) NOT NULL DEFAULT '',
   `post_count` bigint NOT NULL DEFAULT 0,
   `status` varchar(20) NOT NULL DEFAULT 'published',
@@ -117,6 +118,7 @@ CREATE TABLE IF NOT EXISTS `dalan_topic` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_dalan_topic_slug` (`slug`),
   UNIQUE KEY `uk_dalan_topic_name` (`name`),
+  UNIQUE KEY `uk_dalan_topic_normalized_name` (`normalized_name`),
   KEY `idx_dalan_topic_hot` (`status`,`post_count`,`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='大蓝书话题';
 

@@ -10,15 +10,16 @@ import org.dromara.common.core.utils.file.FileUtils;
 import org.dromara.common.oss.constant.OssConstant;
 import org.dromara.common.oss.entity.UploadResult;
 import org.dromara.common.oss.enums.AccessPolicyType;
+import org.dromara.common.oss.enums.OssImageStyle;
 import org.dromara.common.oss.exception.OssException;
 import org.dromara.common.oss.properties.OssProperties;
 import org.dromara.common.oss.utils.OssEndpointUtils;
-import software.amazon.awssdk.http.Protocol;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.async.AsyncResponseTransformer;
 import software.amazon.awssdk.core.async.BlockingInputStreamAsyncRequestBody;
 import software.amazon.awssdk.core.async.ResponsePublisher;
+import software.amazon.awssdk.http.Protocol;
 import software.amazon.awssdk.http.nio.netty.NettyNioAsyncHttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3AsyncClient;
@@ -31,9 +32,11 @@ import software.amazon.awssdk.transfer.s3.progress.LoggingTransferListener;
 
 import java.io.*;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.URL;
 import java.nio.channels.Channels;
 import java.nio.channels.WritableByteChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -348,16 +351,57 @@ public class OssClient {
      * @param expiredTime 链接授权到期时间
      */
     public String createPresignedGetUrl(String objectKey, Duration expiredTime) {
+        return createPresignedGetUrl(objectKey, expiredTime, null);
+    }
+
+    /**
+     * 创建携带固定图片处理规格的下载预签名 URL。
+     *
+     * <p>图片处理参数必须在签名生成前写入请求，不能在签名 URL 后追加。</p>
+     *
+     * @param objectKey   对象KEY
+     * @param expiredTime 链接授权到期时间
+     * @param imageStyle  固定图片处理规格，为空时返回原图
+     */
+    public String createPresignedGetUrl(String objectKey, Duration expiredTime, OssImageStyle imageStyle) {
         // 使用 AWS S3 预签名 URL 的生成器 获取下载对象的预签名 URL
         URL url = presigner.presignGetObject(
                 x -> x.signatureDuration(expiredTime)
                     .getObjectRequest(
-                        y -> y.bucket(properties.getBucketName())
-                            .key(objectKey)
-                            .build())
+                        y -> {
+                            y.bucket(properties.getBucketName()).key(objectKey);
+                            if (imageStyle != null && supportsImageProcessing()) {
+                                y.overrideConfiguration(configuration -> configuration
+                                    .putRawQueryParameter("x-tos-process", imageStyle.getProcess()));
+                            }
+                        })
                     .build())
             .url();
         return url.toExternalForm();
+    }
+
+    /**
+     * 创建公共读对象的图片处理 URL。
+     *
+     * @param objectKey  对象KEY
+     * @param imageStyle 固定图片处理规格
+     * @return 图片处理地址；非 TOS 存储返回原对象地址
+     */
+    public String createImageUrl(String objectKey, OssImageStyle imageStyle) {
+        String url = getUrl() + StringUtils.SLASH + objectKey;
+        if (imageStyle == null || !supportsImageProcessing()) {
+            return url;
+        }
+        String process = URLEncoder.encode(imageStyle.getProcess(), StandardCharsets.UTF_8)
+            .replace("+", "%20");
+        return url + "?x-tos-process=" + process;
+    }
+
+    /**
+     * 当前存储是否支持项目使用的 TOS 图片处理参数。
+     */
+    public boolean supportsImageProcessing() {
+        return OssEndpointUtils.isVolcengineTos(properties.getEndpoint());
     }
 
     /**

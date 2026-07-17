@@ -22,6 +22,7 @@ export type Post = {
   tag?: PostTag;
   circle: string;
   title: string;
+  authorId?: string;
   author: string;
   avatarUrl?: string;
   avatarColor: string;

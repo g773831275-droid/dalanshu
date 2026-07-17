@@ -48,6 +48,7 @@ public final class DalanbookDtos {
                                String cityCode, String cityName, String location, DeviceDto latestDevice) {}
     public record UpdateProfileRequest(
         @NotBlank @Size(max = 30) String nickname,
+        @Pattern(regexp = "^[0-9]+$") String avatarOssId,
         @Size(max = 300) String bio,
         @NotBlank @Size(max = 20) String gender,
         @NotBlank @Size(max = 20) String ageRange,
@@ -124,6 +125,13 @@ public final class DalanbookDtos {
     public record CircleDto(String id, String name, String cover, String desc, String category,
                             List<String> tags, long memberCount, long postCount, boolean isJoined,
                             boolean isOwner, String ownerId, Instant createdAt) {}
+
+    public record PinnedImage(String ossId, String url) {}
+    public record PinnedPublisher(String id, String name) {}
+    public record CirclePinnedItemDto(String id, String kind, String title, String content,
+                                      List<PinnedImage> images, PinnedPublisher publisher,
+                                      long viewCount, String status, Instant publishedAt, Instant pinnedAt) {}
+    public record CirclePinnedItemsResponse(List<CirclePinnedItemDto> items) {}
 
     public record TopicDto(String id, String slug, String name, String description, long postCount,
                            Instant createdAt) {}

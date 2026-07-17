@@ -134,7 +134,7 @@ public class SysUserController extends BaseController {
         SysUserInfoVo userInfoVo = new SysUserInfoVo();
         if (ObjectUtil.isNotNull(userId)) {
             userService.checkUserDataScope(userId);
-            SysUserVo sysUser = userService.selectUserById(userId);
+            SysUserVo sysUser = userService.selectUserDetailById(userId);
             userInfoVo.setUser(sysUser);
             userInfoVo.setRoleIds(roleService.selectRoleListByUserId(userId));
             Long deptId = sysUser.getDeptId();

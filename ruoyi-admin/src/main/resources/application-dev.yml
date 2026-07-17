@@ -81,7 +81,7 @@ spring:
 #          password: root
       hikari:
         # 最大连接池数量
-        maxPoolSize: 20
+        maxPoolSize: 40
         # 最小空闲线程数量
         minIdle: 10
         # 配置获取连接等待超时的时间

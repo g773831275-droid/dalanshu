@@ -59,6 +59,7 @@ function toPost(item: FeedItem): Post {
         circleId: item.circle.id,
         circle: item.circle.name,
         title: item.title,
+        authorId: item.author.id,
         author: item.author.name,
         avatarUrl: item.author.avatarUrl,
         avatarColor: item.author.avatarColor,

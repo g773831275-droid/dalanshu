@@ -1,9 +1,10 @@
-import { createFileRoute, Link, notFound } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { createFileRoute, Link, notFound, useNavigate } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import {
     ArrowLeft,
     CalendarDays,
+    LogOut,
     MapPin,
     MessageCircle,
     Pencil,
@@ -19,7 +20,7 @@ import cover from "@/assets/cover-portrait-pm.jpg";
 import { ProfileEditorDialog } from "@/components/profile/ProfileEditorDialog";
 import { UserRelationDialog } from "@/components/profile/UserRelationDialog";
 import { ageRangeLabel } from "@/data/regions";
-import { AuthApiError, getMyProfile, reportWebDevice, type MyProfile } from "@/lib/authApi";
+import { AuthApiError, getMyProfile, logout, reportWebDevice, type MyProfile } from "@/lib/authApi";
 import { authStore, useAuthUser } from "@/lib/authStore";
 import { getMyCircles } from "@/lib/dalanbookApi";
 import {
@@ -33,7 +34,7 @@ import {
 
 export const Route = createFileRoute("/u/$id")({
     loader: async ({ params }) => {
-        if (params.id === "me" && typeof window === "undefined") return { user: null };
+        if (params.id === "me") return { user: null };
         try {
             return { user: await getUserProfile(params.id) };
         } catch (error) {
@@ -98,25 +99,53 @@ function UserProfile() {
 }
 
 function CurrentUserProfile() {
+    const authUser = useAuthUser();
     const { data: user, isError } = useQuery({
         queryKey: ["dalanbook", "me", "summary"],
         queryFn: () => getUserProfile("me"),
-        enabled: typeof window !== "undefined",
+        enabled: typeof window !== "undefined" && !!authUser,
     });
     if (user) return <UserProfileContent loadedUser={user} />;
+    if (!authUser) {
+        return (
+            <div className="min-h-screen bg-background">
+                <MobileTopBar showChannels={false} />
+                <div className="flex min-h-[70vh] flex-col items-center justify-center gap-3 px-6 text-center">
+                    <p className="text-[14px] text-text-secondary">登录后查看和编辑个人资料</p>
+                    <button
+                        type="button"
+                        onClick={() =>
+                            authStore.openAuth({
+                                tab: "login",
+                                redirect: "/u/me",
+                                action: "查看个人主页",
+                            })
+                        }
+                        className="rounded-[12px] bg-foreground px-5 py-2.5 text-[13.5px] font-medium text-white"
+                    >
+                        登录 / 注册
+                    </button>
+                </div>
+                <MobileBottomNav />
+            </div>
+        );
+    }
     return (
         <div className="flex min-h-screen items-center justify-center text-[13px] text-text-tertiary">
-            {isError ? "请登录后查看个人主页。" : "正在加载个人主页…"}
+            {isError ? "个人主页加载失败，请稍后重试。" : "正在加载个人主页…"}
         </div>
     );
 }
 
 function UserProfileContent({ loadedUser }: { loadedUser: CommunityUser }) {
     const { id: routeUserId } = Route.useParams();
+    const navigate = useNavigate();
+    const queryClient = useQueryClient();
     const authUser = useAuthUser();
     const [user, setUser] = useState(loadedUser);
     const [tab, setTab] = useState<TabKey>("posts");
     const [editing, setEditing] = useState(false);
+    const [loggingOut, setLoggingOut] = useState(false);
     const [relationType, setRelationType] = useState<UserRelationType | null>(null);
     const [followUpdating, setFollowUpdating] = useState(false);
     const isOwnProfile = routeUserId === "me" || user.id === authUser?.id;
@@ -268,14 +297,31 @@ function UserProfileContent({ loadedUser }: { loadedUser: CommunityUser }) {
                                 </>
                             )}
                             {isOwnProfile && (
-                                <button
-                                    onClick={() => setEditing(true)}
-                                    disabled={!myProfile}
-                                    className="flex h-10 items-center gap-1.5 rounded-[12px] bg-foreground px-4 text-[13.5px] font-medium text-white hover:bg-[color:var(--action-primary-hover)] disabled:opacity-60"
-                                >
-                                    <Pencil className="h-3.5 w-3.5" />
-                                    编辑资料
-                                </button>
+                                <>
+                                    <button
+                                        onClick={() => setEditing(true)}
+                                        disabled={!myProfile}
+                                        className="flex h-10 items-center gap-1.5 rounded-[12px] bg-foreground px-4 text-[13.5px] font-medium text-white hover:bg-[color:var(--action-primary-hover)] disabled:opacity-60"
+                                    >
+                                        <Pencil className="h-3.5 w-3.5" />
+                                        编辑资料
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            if (loggingOut) return;
+                                            setLoggingOut(true);
+                                            void logout().finally(() => {
+                                                queryClient.clear();
+                                                void navigate({ to: "/" });
+                                            });
+                                        }}
+                                        disabled={loggingOut}
+                                        className="flex h-10 items-center gap-1.5 rounded-[12px] border border-[color:var(--border-default)] bg-white/60 px-3 text-[13px] text-text-secondary transition-colors hover:text-foreground disabled:opacity-60"
+                                    >
+                                        <LogOut className="h-3.5 w-3.5" />
+                                        {loggingOut ? "退出中…" : "退出登录"}
+                                    </button>
+                                </>
                             )}
                             <button
                                 className="flex h-10 w-10 items-center justify-center rounded-[12px] border border-[color:var(--border-default)] bg-white/60 text-text-secondary transition-colors hover:text-foreground"
@@ -322,7 +368,7 @@ function UserProfileContent({ loadedUser }: { loadedUser: CommunityUser }) {
 
                 <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1fr_300px]">
                     <div className="min-w-0">
-                        <div className="sticky top-[76px] z-10 -mx-4 mb-4 border-b border-[color:var(--border)] bg-background/80 px-4 backdrop-blur md:top-[84px] md:mx-0 md:px-0">
+                        <div className="-mx-4 mb-4 border-b border-[color:var(--border)] px-4 md:mx-0 md:px-0">
                             <div className="flex items-center gap-1">
                                 {tabs.map((item) => (
                                     <button
@@ -431,14 +477,32 @@ function UserProfileContent({ loadedUser }: { loadedUser: CommunityUser }) {
                     profile={myProfile}
                     onClose={() => setEditing(false)}
                     onSaved={(saved: MyProfile) => {
-                        setUser((current) => ({
-                            ...current,
+                        const updatedUser = {
+                            ...user,
                             nickname: saved.nickname,
+                            avatar: saved.avatar,
                             bio: saved.bio,
                             location: saved.location,
-                        }));
+                        };
+                        setUser(updatedUser);
+                        queryClient.setQueryData(["dalanbook", "me", "profile"], saved);
+                        queryClient.setQueryData(["dalanbook", "me", "summary"], updatedUser);
                         const current = authStore.get();
-                        if (current) authStore.set({ ...current, name: saved.nickname });
+                        if (current) {
+                            authStore.set({
+                                ...current,
+                                name: saved.nickname,
+                                avatar: saved.avatar ?? undefined,
+                            });
+                        }
+                        void Promise.all([
+                            queryClient.invalidateQueries({ queryKey: ["home", "feed"] }),
+                            queryClient.invalidateQueries({
+                                queryKey: ["dalanbook", "user", "posts"],
+                            }),
+                            queryClient.invalidateQueries({ queryKey: ["dalanbook", "circle"] }),
+                            queryClient.invalidateQueries({ queryKey: ["dalanbook", "topic"] }),
+                        ]);
                     }}
                 />
             )}

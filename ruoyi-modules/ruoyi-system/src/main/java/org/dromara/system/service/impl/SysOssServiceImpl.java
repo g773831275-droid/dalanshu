@@ -23,6 +23,7 @@ import org.dromara.common.mybatis.core.page.TableDataInfo;
 import org.dromara.common.oss.core.OssClient;
 import org.dromara.common.oss.entity.UploadResult;
 import org.dromara.common.oss.enums.AccessPolicyType;
+import org.dromara.common.oss.enums.OssImageStyle;
 import org.dromara.common.oss.factory.OssFactory;
 import org.dromara.system.domain.SysOss;
 import org.dromara.system.domain.SysOssExt;
@@ -42,6 +43,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -173,6 +175,29 @@ public class SysOssServiceImpl implements ISysOssService, OssService {
         }
         SysOssVo oss = SpringUtils.getAopProxy(this).getById(ossId);
         return ObjectUtil.isNull(oss) ? null : matchingUrl(oss).getUrl();
+    }
+
+    @Override
+    public String getImageAccessUrl(Long ossId, OssImageStyle imageStyle) {
+        if (ossId == null) {
+            return null;
+        }
+        SysOssVo oss = SpringUtils.getAopProxy(this).getById(ossId);
+        if (ObjectUtil.isNull(oss)) {
+            return null;
+        }
+        String suffix = StringUtils.defaultString(oss.getFileSuffix()).toLowerCase(Locale.ROOT);
+        if (imageStyle == null || ".gif".equals(suffix) || "gif".equals(suffix)) {
+            return matchingUrl(oss).getUrl();
+        }
+        OssClient storage = OssFactory.instance(oss.getService());
+        if (!storage.supportsImageProcessing()) {
+            return matchingUrl(oss).getUrl();
+        }
+        if (AccessPolicyType.PRIVATE == storage.getAccessPolicy()) {
+            return storage.createPresignedGetUrl(oss.getFileName(), PRIVATE_URL_TTL, imageStyle);
+        }
+        return storage.createImageUrl(oss.getFileName(), imageStyle);
     }
 
 

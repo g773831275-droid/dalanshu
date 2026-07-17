@@ -2,6 +2,7 @@ package org.dromara.system.service;
 
 import org.dromara.common.mybatis.core.page.PageQuery;
 import org.dromara.common.mybatis.core.page.TableDataInfo;
+import org.dromara.common.oss.enums.OssImageStyle;
 import org.dromara.system.domain.bo.SysOssBo;
 import org.dromara.system.domain.vo.SysOssVo;
 import jakarta.servlet.http.HttpServletResponse;
@@ -52,6 +53,16 @@ public interface ISysOssService {
      * @return 当前有效的访问地址，文件不存在时返回 null
      */
     String getAccessUrl(Long ossId);
+
+    /**
+     * 根据 ossId 获取指定固定规格的图片访问地址。
+     * 非图片、GIF 或不支持图片处理的存储服务会返回原文件地址。
+     *
+     * @param ossId 文件在数据库中的唯一标识
+     * @param imageStyle 固定图片处理规格
+     * @return 当前有效的图片访问地址
+     */
+    String getImageAccessUrl(Long ossId, OssImageStyle imageStyle);
 
     /**
      * 上传 MultipartFile 到对象存储服务，并保存文件信息到数据库
