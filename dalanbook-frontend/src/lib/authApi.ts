@@ -2,11 +2,13 @@ import type { AuthUser } from "@/lib/authStore";
 import { useMockApi } from "@/lib/apiMode";
 import {
     getMockCaptcha,
+    getMockMyProfile,
     getMockMe,
     loginMockWithEmail,
     logoutMock,
     registerMockWithEmail,
     sendMockEmailCode,
+    updateMockMyProfile,
 } from "@/lib/authApi.mock";
 
 const ACCESS_TOKEN_KEY = "dalanbook.auth.accessToken";
@@ -293,10 +295,12 @@ export type UpdateProfileInput = Pick<
 >;
 
 export function getMyProfile() {
+    if (useMockApi) return getMockMyProfile();
     return authRequest<MyProfile>("/api/v1/me/profile");
 }
 
 export function updateMyProfile(input: UpdateProfileInput) {
+    if (useMockApi) return updateMockMyProfile(input);
     return authRequest<MyProfile>("/api/v1/me/profile", {
         method: "PUT",
         body: JSON.stringify(input),

@@ -1,4 +1,5 @@
 import type { AuthUser } from "@/lib/authStore";
+import type { MyProfile, UpdateProfileInput } from "@/lib/authApi";
 
 type MockAccount = {
     user: AuthUser;
@@ -8,6 +9,20 @@ type MockAccount = {
 
 const accounts = new Map<string, MockAccount>();
 let currentUser: AuthUser | null = null;
+let currentProfile: MyProfile = {
+    id: "mock-user-demo",
+    nickname: "我",
+    avatar: null,
+    bio: "记录成长里那些真实的选择与复盘。",
+    gender: "unknown",
+    ageRange: "25-29",
+    provinceCode: "310000",
+    provinceName: "上海市",
+    cityCode: "310100",
+    cityName: "上海市",
+    location: "上海市 · 上海市",
+    latestDevice: null,
+};
 
 accounts.set("demo@dalanbook.com", {
     email: "demo@dalanbook.com",
@@ -74,4 +89,18 @@ export function getMockMe(): Promise<AuthUser> {
 export function logoutMock(): Promise<void> {
     currentUser = null;
     return delay(undefined);
+}
+
+export function getMockMyProfile(): Promise<MyProfile> {
+    return delay({ ...currentProfile });
+}
+
+export function updateMockMyProfile(input: UpdateProfileInput): Promise<MyProfile> {
+    currentProfile = {
+        ...currentProfile,
+        ...input,
+        location: [input.provinceName, input.cityName].filter(Boolean).join(" · "),
+    };
+    if (currentUser) currentUser = { ...currentUser, name: input.nickname };
+    return delay({ ...currentProfile });
 }
