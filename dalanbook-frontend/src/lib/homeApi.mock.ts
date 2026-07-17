@@ -46,6 +46,7 @@ const feedItems: HomeFeedItem[] = posts.map((post, index) => {
       ratio: post.ratio,
       blurhash: null,
     },
+    video: post.video,
     circle: {
       id: post.circleId ?? circle?.id ?? `mock-circle-${index + 1}`,
       name: post.circle,

@@ -16,6 +16,7 @@ public class DalanPostV1 {
     private String title;
     private String content;
     private String images;
+    private String videoAssetId;
     private String cover;
     private String ratio;
     private String tag;

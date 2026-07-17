@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import org.dromara.common.json.utils.JsonUtils;
 import org.dromara.common.satoken.utils.LoginHelper;
+import org.dromara.system.config.dalanbook.VodProperties;
 import org.dromara.system.controller.dalanbook.v1.DalanApiException;
 import org.dromara.system.controller.dalanbook.v1.DalanbookDtos.*;
 import org.dromara.system.domain.SysUser;
@@ -14,6 +15,7 @@ import org.dromara.system.domain.vo.SysOssVo;
 import org.dromara.system.mapper.SysUserMapper;
 import org.dromara.system.mapper.dalanbook.v1.*;
 import org.dromara.system.service.ISysOssService;
+import org.dromara.system.service.dalanbook.vod.VolcengineVodGateway;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -30,7 +32,10 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class DalanbookApiService {
     private static final Set<String> TAGS = Set.of("经验", "提问", "测评", "复盘", "大神分享", "清单");
-    private static final Set<String> RATIOS = Set.of("1/1", "4/5", "3/4", "4/3", "16/9");
+    private static final Set<String> RATIOS = Set.of("1/1", "4/5", "3/4", "4/3", "16/9", "9/16");
+    private static final Set<String> VIDEO_CONTENT_TYPES = Set.of("video/mp4", "video/quicktime", "video/webm");
+    private static final long MAX_VIDEO_SIZE = 200L * 1024 * 1024;
+    private static final long MAX_VIDEO_DURATION_MS = 3L * 60 * 1000;
     private static final Set<String> HOME_CHANNELS = Set.of("recommend", "following", "latest");
     private static final Set<String> MY_POST_TYPES = Set.of("published", "liked", "favorite");
     private static final Set<String> AGE_RANGES = Set.of("unknown", "under18", "18-24", "25-29", "30-34", "35-39", "40-49", "50plus");
@@ -54,6 +59,7 @@ public class DalanbookApiService {
     private final DalanCircleV1Mapper circleMapper;
     private final DalanCircleMemberMapper memberMapper;
     private final DalanPostV1Mapper postMapper;
+    private final DalanVideoAssetMapper videoAssetMapper;
     private final DalanPostStatsMapper statsMapper;
     private final DalanPostReactionMapper reactionMapper;
     private final DalanCommentMapper commentMapper;
@@ -66,6 +72,8 @@ public class DalanbookApiService {
     private final DalanImpressionMapper impressionMapper;
     private final SysUserMapper userMapper;
     private final ISysOssService ossService;
+    private final VolcengineVodGateway vodGateway;
+    private final VodProperties vodProperties;
 
     public CategoriesResponse categories() {
         return new CategoriesResponse(CATEGORIES, "recommend");
@@ -461,8 +469,165 @@ public class DalanbookApiService {
     }
 
     public PostDto post(String id) {
-        DalanPostV1 post = findPost(id);
+        DalanPostV1 post = findPostForDetail(id);
         return toPost(post, context(List.of(post)));
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public VideoUploadCredentialResponse createVideoUploadCredential(VideoUploadCredentialRequest request) {
+        Long userId = requireUserId();
+        String contentType = request.contentType().trim().toLowerCase(Locale.ROOT);
+        if (!VIDEO_CONTENT_TYPES.contains(contentType)) {
+            throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_VIDEO_TYPE", "仅支持 MP4、MOV、WebM 视频");
+        }
+        if (request.size() > MAX_VIDEO_SIZE) {
+            throw new DalanApiException(HttpStatus.PAYLOAD_TOO_LARGE, "VIDEO_TOO_LARGE", "视频不能超过 200MB");
+        }
+        String fileName = request.fileName().trim();
+        VolcengineVodGateway.UploadCredential credential = vodGateway.createUploadCredential(
+            new VolcengineVodGateway.UploadRequest(fileName, contentType, request.size(), vodProperties.getSpaceName(),
+                vodProperties.getWorkflowTemplateId(), vodProperties.getSnapshotTemplateId(), vodProperties.getUploadTokenTtlSeconds()));
+        if (credential.uploadSts() == null || credential.uploadSts().accessKeyId() == null
+            || credential.uploadSts().secretAccessKey() == null || credential.uploadSts().sessionToken() == null
+            || credential.expiresAt() == null) {
+            throw new DalanApiException(HttpStatus.SERVICE_UNAVAILABLE, "VOD_INVALID_CREDENTIAL", "视频服务未返回有效上传凭证");
+        }
+        Instant now = Instant.now();
+        DalanVideoAsset asset = new DalanVideoAsset();
+        asset.setId("va_" + compactId());
+        asset.setAuthorId(userId);
+        asset.setVodVid(null);
+        asset.setFileName(fileName);
+        asset.setContentType(contentType);
+        asset.setFileSize(request.size());
+        asset.setStatus("uploading");
+        asset.setPosterUrl("");
+        asset.setUploadExpiresAt(credential.expiresAt());
+        asset.setCreatedAt(now);
+        asset.setUpdatedAt(now);
+        videoAssetMapper.insert(asset);
+        VolcengineVodGateway.UploadSts uploadSts = credential.uploadSts();
+        return new VideoUploadCredentialResponse(asset.getId(), credential.uploadUrl(), credential.uploadMethod(),
+            credential.uploadHeaders() == null ? Map.of() : Map.copyOf(credential.uploadHeaders()), credential.expiresAt(),
+            vodProperties.getApplicationId(), vodProperties.getSpaceName(), vodProperties.getWorkflowTemplateId(),
+            new VideoUploadSts(uploadSts.accessKeyId(), uploadSts.secretAccessKey(), uploadSts.sessionToken(),
+                uploadSts.expiredTime(), uploadSts.currentTime(), uploadSts.spaceName()));
+    }
+
+    public VideoAssetDto videoAsset(String id) {
+        Long userId = requireUserId();
+        DalanVideoAsset asset = videoAssetMapper.selectById(id);
+        if (asset == null || !Objects.equals(asset.getAuthorId(), userId)) {
+            throw new DalanApiException(HttpStatus.NOT_FOUND, "VIDEO_NOT_FOUND", "视频不存在");
+        }
+        return toVideoAsset(asset);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public VideoAssetDto completeVideoUpload(String id, VideoUploadCompleteRequest request) {
+        Long userId = requireUserId();
+        DalanVideoAsset asset = findOwnedVideoAssetForUpdate(id, userId);
+        if (asset.getVodVid() != null && !asset.getVodVid().isBlank()
+            && Set.of("uploaded", "processing", "ready").contains(asset.getStatus())) {
+            if (!asset.getVodVid().equals(request.vid().trim())) {
+                throw new DalanApiException(HttpStatus.CONFLICT, "VIDEO_COMPLETE_CONFLICT", "视频上传已完成，不能绑定其他视频");
+            }
+            return toVideoAsset(asset);
+        }
+        if (!"uploading".equals(asset.getStatus())) {
+            throw new DalanApiException(HttpStatus.CONFLICT, "VIDEO_COMPLETE_NOT_ALLOWED", "当前视频状态不能完成上传");
+        }
+        if (asset.getUploadExpiresAt() != null && asset.getUploadExpiresAt().isBefore(Instant.now())) {
+            throw new DalanApiException(HttpStatus.GONE, "VIDEO_UPLOAD_EXPIRED", "上传凭证已过期，请重新选择视频");
+        }
+        String vid = request.vid().trim();
+        if (videoAssetMapper.selectCount(new LambdaQueryWrapper<DalanVideoAsset>()
+            .eq(DalanVideoAsset::getVodVid, vid).ne(DalanVideoAsset::getId, asset.getId())) > 0) {
+            throw new DalanApiException(HttpStatus.CONFLICT, "VOD_VIDEO_ALREADY_BOUND", "该点播视频已关联到其他上传记录");
+        }
+        VolcengineVodGateway.UploadCompletion completion = vodGateway.completeUpload(
+            new VolcengineVodGateway.UploadCompletionRequest(vid));
+        if (completion.vodVid() == null || !vid.equals(completion.vodVid())) {
+            throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "VOD_VIDEO_NOT_FOUND", "点播服务未确认上传视频");
+        }
+        asset.setVodVid(vid);
+        asset.setStatus("processing");
+        if (completion.posterUrl() != null) asset.setPosterUrl(completion.posterUrl());
+        if (completion.durationMs() != null) asset.setDurationMs(completion.durationMs());
+        if (completion.width() != null) asset.setWidth(completion.width());
+        if (completion.height() != null) asset.setHeight(completion.height());
+        if (completion.size() != null) asset.setFileSize(completion.size());
+        asset.setUpdatedAt(Instant.now());
+        videoAssetMapper.updateById(asset);
+        return toVideoAsset(asset);
+    }
+
+    public VideoPlaybackResponse videoPlayback(String postId) {
+        DalanPostV1 post = findPost(postId);
+        if (post.getVideoAssetId() == null || post.getVideoAssetId().isBlank()) {
+            throw new DalanApiException(HttpStatus.NOT_FOUND, "POST_VIDEO_NOT_FOUND", "该帖子没有视频");
+        }
+        DalanVideoAsset asset = videoAssetMapper.selectById(post.getVideoAssetId());
+        if (asset == null || !"ready".equals(asset.getStatus()) || asset.getVodVid() == null || asset.getVodVid().isBlank()) {
+            throw new DalanApiException(HttpStatus.CONFLICT, "VIDEO_NOT_READY", "视频仍在处理中");
+        }
+        VolcengineVodGateway.PlaybackSource playback = vodGateway.getPlaybackSource(asset.getVodVid(),
+            vodProperties.getPlayAuthTtlSeconds());
+        if ((playback.url() == null || playback.url().isBlank())
+            && (playback.vid() == null || playback.vid().isBlank() || playback.playAuth() == null || playback.playAuth().isBlank())
+            || playback.expiresAt() == null) {
+            throw new DalanApiException(HttpStatus.SERVICE_UNAVAILABLE, "VOD_INVALID_PLAYBACK", "视频服务未返回有效播放地址");
+        }
+        return new VideoPlaybackResponse(playback.url(), playback.expiresAt(), emptyToNull(asset.getPosterUrl()), asset.getDurationMs(),
+            playback.vid(), playback.playAuth());
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void handleVodCallback(String payload, Map<String, String> headers) {
+        VolcengineVodGateway.CallbackEvent event = vodGateway.verifyAndParseCallback(payload, headers);
+        if (event == null || event.vodVid() == null || event.vodVid().isBlank()) {
+            throw new DalanApiException(HttpStatus.BAD_REQUEST, "INVALID_VOD_CALLBACK", "VOD 回调缺少视频标识");
+        }
+        if (vodProperties.getSpaceName() != null && !vodProperties.getSpaceName().isBlank()
+            && !vodProperties.getSpaceName().equals(event.spaceName())) {
+            throw new DalanApiException(HttpStatus.FORBIDDEN, "INVALID_VOD_CALLBACK", "VOD 回调空间不匹配");
+        }
+        DalanVideoAsset asset = videoAssetMapper.selectOne(new LambdaQueryWrapper<DalanVideoAsset>()
+            .eq(DalanVideoAsset::getVodVid, event.vodVid()).last("LIMIT 1"));
+        if (asset == null) {
+            return;
+        }
+        if (event.eventId() != null && event.eventId().equals(asset.getCallbackEventId())) {
+            return;
+        }
+        String status = normalizeVideoStatus(event.status());
+        if (status == null) {
+            return;
+        }
+        boolean exceedsDurationLimit = event.durationMs() != null && event.durationMs() > MAX_VIDEO_DURATION_MS;
+        if (exceedsDurationLimit) {
+            status = "failed";
+        }
+        asset.setStatus(status);
+        asset.setCallbackEventId(event.eventId());
+        if (event.posterUrl() != null) asset.setPosterUrl(event.posterUrl());
+        if (event.durationMs() != null) asset.setDurationMs(event.durationMs());
+        if (event.width() != null) asset.setWidth(event.width());
+        if (event.height() != null) asset.setHeight(event.height());
+        if (event.size() != null) asset.setFileSize(event.size());
+        asset.setFailureReason("failed".equals(status)
+            ? (exceedsDurationLimit ? "短视频不能超过 3 分钟" : clean(event.failureReason())) : null);
+        asset.setUpdatedAt(Instant.now());
+        videoAssetMapper.updateById(asset);
+        if ("ready".equals(status)) {
+            publishVideoPosts(asset.getId());
+        } else if ("failed".equals(status)) {
+            postMapper.update(null, new LambdaUpdateWrapper<DalanPostV1>()
+                .eq(DalanPostV1::getVideoAssetId, asset.getId())
+                .eq(DalanPostV1::getStatus, "media_processing")
+                .set(DalanPostV1::getStatus, "media_failed")
+                .set(DalanPostV1::getUpdatedAt, Instant.now()));
+        }
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -475,10 +640,23 @@ public class DalanbookApiService {
         if (!TAGS.contains(request.tag())) {
             throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_POST_TAG", "帖子标签无效");
         }
-        if (!RATIOS.contains(request.ratio()) || request.images().stream().anyMatch(image -> !RATIOS.contains(image.ratio()))) {
+        List<ImageInput> requestedImages = request.images() == null ? List.of() : request.images();
+        String videoAssetId = clean(request.videoAssetId());
+        if (!videoAssetId.isEmpty() && !requestedImages.isEmpty()) {
+            throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "MIXED_MEDIA_NOT_SUPPORTED", "图片和视频不能同时发布");
+        }
+        if (!RATIOS.contains(request.ratio()) || requestedImages.stream().anyMatch(image -> !RATIOS.contains(image.ratio()))) {
             throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_IMAGE_RATIO", "图片比例无效");
         }
-        List<StoredImage> storedImages = request.images().stream().map(image -> {
+        DalanVideoAsset videoAsset = videoAssetId.isEmpty() ? null : findOwnedVideoAsset(videoAssetId, userId);
+        if (videoAsset != null && !Set.of("uploading", "uploaded", "processing", "ready").contains(videoAsset.getStatus())) {
+            throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "VIDEO_NOT_USABLE", "视频上传失败或已删除");
+        }
+        if (videoAsset != null && postMapper.selectCount(new LambdaQueryWrapper<DalanPostV1>()
+            .eq(DalanPostV1::getVideoAssetId, videoAsset.getId())) > 0) {
+            throw new DalanApiException(HttpStatus.CONFLICT, "VIDEO_ALREADY_ATTACHED", "该视频已关联到其他帖子");
+        }
+        List<StoredImage> storedImages = requestedImages.stream().map(image -> {
             Long ossId = parseOssId(image.ossId());
             SysOssVo oss = ossService.getById(ossId);
             if (oss == null) {
@@ -497,15 +675,16 @@ public class DalanbookApiService {
         post.setTitle(request.title().trim());
         post.setContent(request.content().trim());
         post.setImages(JsonUtils.toJsonString(storedImages));
-        post.setCover("");
+        post.setVideoAssetId(videoAsset == null ? null : videoAsset.getId());
+        post.setCover(videoAsset == null ? "" : defaultValue(videoAsset.getPosterUrl(), ""));
         post.setRatio(request.ratio());
         post.setTag(request.tag());
         post.setVisibility("circle".equals(request.visibility()) ? "circle" : "public");
-        post.setStatus("published");
+        post.setStatus(videoAsset == null || "ready".equals(videoAsset.getStatus()) ? "published" : "media_processing");
         post.setCreatedAt(now);
         post.setUpdatedAt(now);
         postMapper.insert(post);
-        savePostTopics(post.getId(), request.topics(), now);
+        savePostTopics(post.getId(), request.topics(), now, "published".equals(post.getStatus()));
         DalanPostStats stats = new DalanPostStats();
         stats.setPostId(post.getId());
         stats.setUsefulCount(0L);
@@ -514,12 +693,9 @@ public class DalanbookApiService {
         stats.setFavoriteCount(0L);
         stats.setUpdatedAt(now);
         statsMapper.insert(stats);
-        circleMapper.changePostCount(circle.getId(), 1);
-        ensureProfile(userId);
-        DalanUserProfile profile = profileMapper.selectById(userId);
-        profile.setPostCount(nvl(profile.getPostCount()) + 1);
-        profile.setUpdatedAt(now);
-        profileMapper.updateById(profile);
+        if ("published".equals(post.getStatus())) {
+            incrementPublishedPostCounts(post);
+        }
         return toPost(post, context(List.of(post)));
     }
 
@@ -721,29 +897,35 @@ public class DalanbookApiService {
     }
 
     private FeedContext context(List<DalanPostV1> posts) {
-        if (posts.isEmpty()) return new FeedContext(Map.of(), Map.of(), Map.of(), Set.of(), Set.of(), Set.of());
+        if (posts.isEmpty()) return new FeedContext(Map.of(), Map.of(), Map.of(), Map.of(), Set.of(), Set.of(), Set.of());
         Set<String> circleIds = posts.stream().map(DalanPostV1::getCircleId).collect(Collectors.toSet());
         Set<Long> authorIds = posts.stream().map(DalanPostV1::getAuthorId).collect(Collectors.toSet());
         Set<String> postIds = posts.stream().map(DalanPostV1::getId).collect(Collectors.toSet());
+        Set<String> videoAssetIds = posts.stream().map(DalanPostV1::getVideoAssetId)
+            .filter(Objects::nonNull).filter(value -> !value.isBlank()).collect(Collectors.toSet());
         Map<String, DalanCircleV1> circles = circleMap(circleIds);
         Map<Long, SysUser> users = userMapper.selectBatchIds(authorIds).stream().collect(Collectors.toMap(SysUser::getUserId, Function.identity()));
         Map<String, DalanPostStats> stats = statsMapper.selectBatchIds(postIds).stream().collect(Collectors.toMap(DalanPostStats::getPostId, Function.identity()));
+        Map<String, DalanVideoAsset> videos = videoAssetIds.isEmpty() ? Map.of() : videoAssetMapper.selectBatchIds(videoAssetIds).stream()
+            .collect(Collectors.toMap(DalanVideoAsset::getId, Function.identity()));
         List<DalanPostReaction> reactions = currentUserId().map(userId -> reactionMapper.selectList(
             new LambdaQueryWrapper<DalanPostReaction>().in(DalanPostReaction::getPostId, postIds)
                 .eq(DalanPostReaction::getUserId, userId))).orElse(List.of());
         Set<String> useful = reactionIds(reactions, "useful");
         Set<String> liked = reactionIds(reactions, "like");
         Set<String> favorited = reactionIds(reactions, "favorite");
-        return new FeedContext(circles, users, stats, useful, liked, favorited);
+        return new FeedContext(circles, users, stats, videos, useful, liked, favorited);
     }
 
     private FeedItem toFeedItem(DalanPostV1 post, FeedContext context) {
         DalanCircleV1 circle = context.circles().get(post.getCircleId());
         SysUser user = context.users().get(post.getAuthorId());
         DalanPostStats stats = context.stats().get(post.getId());
-        return new FeedItem(post.getId(), new Cover(coverUrl(post), post.getRatio(), null), post.getTag(), post.getTitle(),
+        VideoBrief video = videoBrief(post, context.videos());
+        return new FeedItem(post.getId(), new Cover(coverUrl(post, video), post.getRatio(), null), post.getTag(), post.getTitle(),
             new CircleBrief(post.getCircleId(), circle == null ? "" : circle.getName()), author(post.getAuthorId(), user),
-            new Useful(stats == null ? 0 : nvl(stats.getUsefulCount()), context.useful().contains(post.getId())), post.getCreatedAt());
+            new Useful(stats == null ? 0 : nvl(stats.getUsefulCount()), context.useful().contains(post.getId())), post.getCreatedAt(),
+            video);
     }
 
     private PostDto toPost(DalanPostV1 post, FeedContext context) {
@@ -752,12 +934,16 @@ public class DalanbookApiService {
         boolean useful = context.useful().contains(post.getId());
         List<ImageDto> postImages = images(post.getImages());
         String cover = postImages.isEmpty() ? post.getCover() : postImages.get(0).url();
+        VideoBrief video = videoBrief(post, context.videos());
+        if (video != null && video.posterUrl() != null && !video.posterUrl().isBlank()) {
+            cover = video.posterUrl();
+        }
         return new PostDto(post.getId(), post.getTitle(), post.getContent(), postImages, cover,
             post.getRatio(), post.getTag(), postTopics(post.getId()), new CircleBrief(post.getCircleId(), circle == null ? "" : circle.getName()),
             author(post.getAuthorId(), context.users().get(post.getAuthorId())), stats == null ? 0 : nvl(stats.getUsefulCount()),
             stats == null ? 0 : nvl(stats.getLikeCount()), stats == null ? 0 : nvl(stats.getCommentCount()),
             stats == null ? 0 : nvl(stats.getFavoriteCount()), useful, context.liked().contains(post.getId()),
-            context.favorited().contains(post.getId()), post.getCreatedAt());
+            context.favorited().contains(post.getId()), post.getCreatedAt(), video);
     }
 
     private FeedResponse postFeed(LambdaQueryWrapper<DalanPostV1> query, String cursor, int requestedLimit) {
@@ -777,7 +963,7 @@ public class DalanbookApiService {
         return new FeedResponse(page.stream().map(post -> toFeedItem(post, context)).toList(), next, more);
     }
 
-    private void savePostTopics(String postId, List<String> requestedTopics, Instant now) {
+    private void savePostTopics(String postId, List<String> requestedTopics, Instant now, boolean countPost) {
         if (requestedTopics == null || requestedTopics.isEmpty()) return;
         requestedTopics.stream().map(String::trim).filter(name -> !name.isEmpty()).distinct().limit(5).forEach(name -> {
             DalanTopic topic = topicMapper.selectOne(new LambdaQueryWrapper<DalanTopic>()
@@ -804,7 +990,9 @@ public class DalanbookApiService {
                 relation.setTopicId(topic.getId());
                 relation.setCreatedAt(now);
                 postTopicMapper.insert(relation);
-                topicMapper.changePostCount(topic.getId(), 1);
+                if (countPost) {
+                    topicMapper.changePostCount(topic.getId(), 1);
+                }
             }
         });
     }
@@ -898,13 +1086,78 @@ public class DalanbookApiService {
         if (post == null || !"published".equals(post.getStatus())) {
             throw new DalanApiException(HttpStatus.NOT_FOUND, "POST_NOT_FOUND", "帖子不存在");
         }
+        assertPostVisibility(post);
+        return post;
+    }
+
+    private DalanPostV1 findPostForDetail(String id) {
+        DalanPostV1 post = postMapper.selectById(id);
+        if (post == null) {
+            throw new DalanApiException(HttpStatus.NOT_FOUND, "POST_NOT_FOUND", "帖子不存在");
+        }
+        if (!"published".equals(post.getStatus())) {
+            Long userId = currentUserId().orElse(null);
+            if (!Objects.equals(post.getAuthorId(), userId)) {
+                throw new DalanApiException(HttpStatus.NOT_FOUND, "POST_NOT_FOUND", "帖子不存在");
+            }
+            return post;
+        }
+        assertPostVisibility(post);
+        return post;
+    }
+
+    private void assertPostVisibility(DalanPostV1 post) {
         if ("circle".equals(post.getVisibility())) {
             boolean member = currentUserId().map(userId -> isMember(post.getCircleId(), userId)).orElse(false);
             if (!member) {
                 throw new DalanApiException(HttpStatus.FORBIDDEN, "CIRCLE_MEMBERSHIP_REQUIRED", "该帖子仅圈内成员可见");
             }
         }
-        return post;
+    }
+
+    private DalanVideoAsset findOwnedVideoAsset(String assetId, Long userId) {
+        DalanVideoAsset asset = videoAssetMapper.selectById(assetId);
+        return assertVideoAssetOwner(asset, userId);
+    }
+
+    private DalanVideoAsset findOwnedVideoAssetForUpdate(String assetId, Long userId) {
+        DalanVideoAsset asset = videoAssetMapper.selectByIdForUpdate(assetId);
+        return assertVideoAssetOwner(asset, userId);
+    }
+
+    private DalanVideoAsset assertVideoAssetOwner(DalanVideoAsset asset, Long userId) {
+        if (asset == null) {
+            throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "VIDEO_NOT_FOUND", "上传视频不存在");
+        }
+        if (!Objects.equals(asset.getAuthorId(), userId)) {
+            throw new DalanApiException(HttpStatus.FORBIDDEN, "VIDEO_NOT_OWNED", "不能使用其他用户上传的视频");
+        }
+        return asset;
+    }
+
+    private void publishVideoPosts(String assetId) {
+        List<DalanPostV1> posts = postMapper.selectList(new LambdaQueryWrapper<DalanPostV1>()
+            .eq(DalanPostV1::getVideoAssetId, assetId)
+            .eq(DalanPostV1::getStatus, "media_processing"));
+        for (DalanPostV1 post : posts) {
+            post.setStatus("published");
+            post.setUpdatedAt(Instant.now());
+            if (postMapper.updateById(post) > 0) {
+                incrementPublishedPostCounts(post);
+                postTopicMapper.selectList(new LambdaQueryWrapper<DalanPostTopic>()
+                        .eq(DalanPostTopic::getPostId, post.getId()))
+                    .forEach(topic -> topicMapper.changePostCount(topic.getTopicId(), 1));
+            }
+        }
+    }
+
+    private void incrementPublishedPostCounts(DalanPostV1 post) {
+        circleMapper.changePostCount(post.getCircleId(), 1);
+        ensureProfile(post.getAuthorId());
+        DalanUserProfile profile = profileMapper.selectById(post.getAuthorId());
+        profile.setPostCount(nvl(profile.getPostCount()) + 1);
+        profile.setUpdatedAt(Instant.now());
+        profileMapper.updateById(profile);
     }
 
     private long unreadCount(Long userId) {
@@ -975,7 +1228,10 @@ public class DalanbookApiService {
             .toList();
     }
 
-    private String coverUrl(DalanPostV1 post) {
+    private String coverUrl(DalanPostV1 post, VideoBrief video) {
+        if (video != null && video.posterUrl() != null && !video.posterUrl().isBlank()) {
+            return video.posterUrl();
+        }
         if (post.getImages() == null || post.getImages().isBlank()) return post.getCover();
         List<StoredImage> storedImages = JsonUtils.parseArray(post.getImages(), StoredImage.class);
         if (storedImages.isEmpty()) return post.getCover();
@@ -1008,6 +1264,33 @@ public class DalanbookApiService {
         } catch (NumberFormatException ignored) {
             return null;
         }
+    }
+
+    private VideoAssetDto toVideoAsset(DalanVideoAsset asset) {
+        return new VideoAssetDto(asset.getId(), asset.getStatus(), emptyToNull(asset.getPosterUrl()), asset.getDurationMs(),
+            asset.getWidth(), asset.getHeight(), emptyToNull(asset.getFailureReason()), asset.getCreatedAt(), asset.getUpdatedAt());
+    }
+
+    private VideoBrief videoBrief(DalanPostV1 post, Map<String, DalanVideoAsset> videos) {
+        if (post.getVideoAssetId() == null || post.getVideoAssetId().isBlank()) {
+            return null;
+        }
+        DalanVideoAsset asset = videos.get(post.getVideoAssetId());
+        if (asset == null) {
+            return null;
+        }
+        return new VideoBrief(asset.getId(), asset.getStatus(), emptyToNull(asset.getPosterUrl()), asset.getDurationMs(),
+            asset.getWidth(), asset.getHeight());
+    }
+
+    private String normalizeVideoStatus(String value) {
+        if (value == null) return null;
+        return switch (value.toLowerCase(Locale.ROOT)) {
+            case "uploading", "uploaded", "processing", "ready", "failed", "deleted" -> value.toLowerCase(Locale.ROOT);
+            case "success", "completed", "publish" -> "ready";
+            case "error", "rejected" -> "failed";
+            default -> null;
+        };
     }
 
     private List<String> strings(String json) {
@@ -1103,6 +1386,7 @@ public class DalanbookApiService {
             device.getOsVersion(), device.getBrowser(), device.getBrowserVersion(), device.getLastSeenAt());
     }
     private String clean(String value) { return value == null ? "" : value.trim(); }
+    private String emptyToNull(String value) { return value == null || value.isBlank() ? null : value; }
     private String defaultValue(String value, String fallback) { return value == null || value.isBlank() ? fallback : value.trim(); }
     private String location(String province, String city) {
         if (province == null || province.isBlank()) return city == null ? "" : city;
@@ -1122,6 +1406,6 @@ public class DalanbookApiService {
     private record CursorValue(Instant createdAt, String id) {}
     private record StoredImage(String ossId, String url, String ratio) {}
     private record FeedContext(Map<String, DalanCircleV1> circles, Map<Long, SysUser> users,
-                               Map<String, DalanPostStats> stats, Set<String> useful,
+                               Map<String, DalanPostStats> stats, Map<String, DalanVideoAsset> videos, Set<String> useful,
                                Set<String> liked, Set<String> favorited) {}
 }

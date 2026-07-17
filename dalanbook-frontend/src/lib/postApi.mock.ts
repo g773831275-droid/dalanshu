@@ -8,6 +8,10 @@ import type {
     PostReactionType,
     PublishPostInput,
     UploadResult,
+    UploadVideoProgress,
+    VideoAsset,
+    VideoPlaybackSource,
+    VideoPostMedia,
 } from "@/lib/dalanbookApi";
 
 type MockPostState = {
@@ -15,10 +19,45 @@ type MockPostState = {
     comments: ApiComment[];
 };
 
+type MockVideoAssetState = VideoAsset & {
+    playbackUrl: string;
+    readyAt: number;
+};
+
 const mockNow = Date.UTC(2026, 6, 16, 10, 0, 0);
+const mockVideoAssets = new Map<string, MockVideoAssetState>();
 
 function delay<T>(value: T): Promise<T> {
     return new Promise((resolve) => globalThis.setTimeout(() => resolve(value), 140));
+}
+
+function currentVideoAsset(asset: MockVideoAssetState): MockVideoAssetState {
+    if (asset.status === "processing" && Date.now() >= asset.readyAt) {
+        asset.status = "ready";
+    }
+    return asset;
+}
+
+function toVideoPostMedia(asset: MockVideoAssetState): VideoPostMedia {
+    const {
+        id: _id,
+        playbackUrl: _playbackUrl,
+        readyAt: _readyAt,
+        failureReason: _failureReason,
+        ...media
+    } = currentVideoAsset(asset);
+    return { ...media, assetId: asset.id };
+}
+
+function toVideoAsset(asset: MockVideoAssetState): VideoAsset {
+    const { playbackUrl: _playbackUrl, readyAt: _readyAt, ...media } = currentVideoAsset(asset);
+    return { ...media };
+}
+
+function requireVideoAsset(id: string): MockVideoAssetState {
+    const asset = mockVideoAssets.get(id);
+    if (!asset) throw new Error("视频不存在或已过期");
+    return currentVideoAsset(asset);
 }
 
 function comment(
@@ -135,6 +174,9 @@ function clonePost(post: ApiPost): ApiPost {
     return {
         ...post,
         images: post.images.map((image) => ({ ...image })),
+        video: post.video
+            ? toVideoPostMedia(requireVideoAsset(post.video.assetId))
+            : undefined,
         topics: post.topics.map((topic) => ({ ...topic })),
         circle: { ...post.circle },
         author: { ...post.author },
@@ -154,9 +196,52 @@ export function uploadMockImage(file: File): Promise<UploadResult> {
     }
     return delay({
         url: globalThis.URL.createObjectURL(file),
-        ossId: Date.now(),
+        ossId: String(Date.now()),
         contentType: file.type,
         size: file.size,
+    });
+}
+
+export function uploadMockVideo(
+    file: File,
+    onProgress?: UploadVideoProgress,
+): Promise<VideoAsset> {
+    const allowedTypes = new Set(["video/mp4", "video/quicktime", "video/webm"]);
+    if (!file.size) return Promise.reject(new Error("上传视频不能为空"));
+    if (file.size > 200 * 1024 * 1024) return Promise.reject(new Error("视频不能超过 200MB"));
+    if (!allowedTypes.has(file.type)) {
+        return Promise.reject(new Error("仅支持 MP4、MOV、WebM 视频"));
+    }
+    const asset: MockVideoAssetState = {
+        id: `mock-video-${Date.now()}`,
+        status: "processing",
+        playbackUrl: globalThis.URL.createObjectURL(file),
+        readyAt: Date.now() + 1_500,
+    };
+    mockVideoAssets.set(asset.id, asset);
+    onProgress?.(8);
+    return new Promise((resolve) => {
+        globalThis.setTimeout(() => {
+            onProgress?.(100);
+            resolve(toVideoAsset(asset));
+        }, 180);
+    });
+}
+
+export function getMockVideoAsset(id: string): Promise<VideoAsset> {
+    return delay(toVideoAsset(requireVideoAsset(id)));
+}
+
+export function getMockVideoPlayback(postId: string): Promise<VideoPlaybackSource> {
+    const video = requirePost(postId).post.video;
+    if (!video) return Promise.reject(new Error("该帖子不包含视频"));
+    const asset = requireVideoAsset(video.assetId);
+    if (asset.status !== "ready") return Promise.reject(new Error("视频仍在处理中"));
+    return delay({
+        url: asset.playbackUrl,
+        expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+        posterUrl: asset.posterUrl,
+        durationMs: asset.durationMs,
     });
 }
 
@@ -164,9 +249,12 @@ export async function publishMockPost(input: PublishPostInput): Promise<ApiPost>
     const title = input.title.trim();
     const content = input.content.trim();
     const allowedTags = new Set(["经验", "提问", "测评", "复盘", "大神分享", "清单"]);
-    const allowedRatios = new Set(["1/1", "4/5", "3/4", "4/3", "16/9"]);
-    if (!title || !content || !input.images.length || input.images.length > 9) {
-        throw new Error("请完整填写标题、正文并上传图片");
+    const allowedRatios = new Set(["1/1", "4/5", "3/4", "4/3", "16/9", "9/16"]);
+    if (!title || !content || input.images.length > 9) {
+        throw new Error("请完整填写标题和正文");
+    }
+    if (input.images.length && input.videoAssetId) {
+        throw new Error("图片和视频不能同时发布");
     }
     if (title.length > 120 || content.length > 10_000) throw new Error("帖子内容超过长度限制");
     if (!allowedTags.has(input.tag)) throw new Error("帖子标签无效");
@@ -179,6 +267,7 @@ export async function publishMockPost(input: PublishPostInput): Promise<ApiPost>
     if ((input.topics?.length ?? 0) > 5) throw new Error("话题数量不能超过 5 个");
     const circle = await getMockCircle(input.circleId);
     if (!circle.isJoined) throw new Error("加入圈子后才能发布帖子");
+    const video = input.videoAssetId ? requireVideoAsset(input.videoAssetId) : undefined;
     const id = `mock-post-${Date.now()}`;
     const createdAt = new Date().toISOString();
     const post: ApiPost = {
@@ -186,7 +275,8 @@ export async function publishMockPost(input: PublishPostInput): Promise<ApiPost>
         title,
         content,
         images: input.images.map((image) => ({ ...image })),
-        cover: input.images[0].url,
+        video: video ? toVideoPostMedia(video) : undefined,
+        cover: video?.posterUrl ?? input.images[0]?.url ?? "",
         ratio: input.ratio,
         tag: input.tag,
         topics: (input.topics ?? []).map((name, index) => ({

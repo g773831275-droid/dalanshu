@@ -7,9 +7,10 @@ import {
   getMockHomeLeftNav,
 } from "@/lib/homeApi.mock";
 import type { HomeChannel } from "@/lib/homeUi";
+import type { VideoPostMedia } from "@/lib/dalanbookApi";
 
 export type HomeCategoryType = "system" | "topic";
-export type HomeCoverRatio = "1/1" | "4/5" | "3/4" | "4/3" | "16/9";
+export type HomeCoverRatio = "1/1" | "4/5" | "3/4" | "4/3" | "16/9" | "9/16";
 export type HomePostTag = "经验" | "提问" | "测评" | "复盘" | "大神分享" | "清单";
 
 export type HomeCategory = {
@@ -32,6 +33,7 @@ export type HomeFeedItem = {
     ratio: HomeCoverRatio;
     blurhash: string | null;
   };
+  video?: VideoPostMedia;
   circle: {
     id: string;
     name: string;

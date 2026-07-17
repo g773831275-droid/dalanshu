@@ -24,7 +24,7 @@ public final class DalanbookDtos {
     public record Author(String id, String name, String avatarUrl, String avatarColor) {}
     public record Useful(long count, boolean liked) {}
     public record FeedItem(String id, Cover cover, String tag, String title, CircleBrief circle,
-                           Author author, Useful useful, Instant createdAt) {}
+                           Author author, Useful useful, Instant createdAt, VideoBrief video) {}
     public record FeedResponse(List<FeedItem> items, String nextCursor, boolean hasMore) {}
 
     public record CircleRecommendation(String id, String name, String desc, String membersText,
@@ -76,17 +76,37 @@ public final class DalanbookDtos {
     public record ImageDto(String ossId, @NotBlank String url, @NotBlank String ratio) {}
     public record ImageInput(@NotBlank @Pattern(regexp = "^[0-9]+$") String ossId,
                              @NotBlank String ratio) {}
+    public record VideoBrief(String assetId, String status, String posterUrl, Long durationMs,
+                             Integer width, Integer height) {}
+    public record VideoAssetDto(String id, String status, String posterUrl, Long durationMs,
+                                Integer width, Integer height, String failureReason,
+                                Instant createdAt, Instant updatedAt) {}
+    public record VideoUploadCredentialRequest(
+        @NotBlank @Size(max = 255) String fileName,
+        @NotBlank @Size(max = 100) String contentType,
+        @NotNull @Min(1) Long size
+    ) {}
+    public record VideoUploadCredentialResponse(String assetId, String uploadUrl, String uploadMethod,
+                                                Map<String, String> uploadHeaders, Instant expiresAt,
+                                                Long applicationId, String spaceName, String workflowTemplateId,
+                                                VideoUploadSts uploadSts) {}
+    public record VideoUploadSts(String accessKeyId, String secretAccessKey, String sessionToken,
+                                 String expiredTime, String currentTime, String spaceName) {}
+    public record VideoUploadCompleteRequest(@NotBlank @Size(max = 128) String vid) {}
+    public record VideoPlaybackResponse(String url, Instant expiresAt, String posterUrl, Long durationMs,
+                                        String vid, String playAuth) {}
     public record PostDto(String id, String title, String content, List<ImageDto> images, String cover,
                           String ratio, String tag, List<TopicDto> topics, CircleBrief circle, Author author, long usefulCount,
                           long likeCount, long commentCount, long favoriteCount, boolean isUseful,
-                          boolean isLiked, boolean isFavorited, Instant createdAt) {}
+                          boolean isLiked, boolean isFavorited, Instant createdAt, VideoBrief video) {}
     public record CursorPage<T>(List<T> items, String nextCursor, boolean hasMore) {}
 
     public record CreatePostRequest(
         @NotBlank @Size(max = 120) String title,
         @NotBlank @Size(max = 10000) String content,
         @NotBlank String circleId,
-        @NotNull @Size(max = 9) List<@Valid ImageInput> images,
+        @Size(max = 9) List<@Valid ImageInput> images,
+        @Pattern(regexp = "^$|^[A-Za-z0-9_-]{1,64}$") String videoAssetId,
         @NotBlank String tag,
         @NotBlank String ratio,
         @Size(max = 5) List<@NotBlank @Size(max = 20) String> topics,

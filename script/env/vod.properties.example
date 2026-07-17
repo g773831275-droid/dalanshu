@@ -1,0 +1,16 @@
+# Copy this file to ~/.config/dalanshu/vod.properties, set permissions to 600,
+# and replace every placeholder. Do not commit real credentials.
+VOD_ENABLED=false
+VOD_ACCESS_KEY_ID=<Volcengine-VOD-AccessKey-ID>
+VOD_ACCESS_KEY_SECRET=<Volcengine-VOD-SecretAccessKey>
+VOD_REGION=cn-north-1
+VOD_SPACE_NAME=<Volcengine-VOD-SpaceName>
+VOD_APPLICATION_ID=<VOD-Web-SDK-Application-ID>
+VOD_PLAY_DOMAIN=<https-play-domain>
+VOD_CALLBACK_URL=<https://api.example.com/internal/v1/vod/events>
+VOD_CALLBACK_PRIVATE_KEY=<callback-private-key>
+VOD_WORKFLOW_TEMPLATE_ID=<HLS-H264-AAC-workflow-template-id>
+VOD_SNAPSHOT_TEMPLATE_ID=<poster-snapshot-template-id>
+VOD_UPLOAD_TOKEN_TTL_SECONDS=900
+VOD_PLAY_AUTH_TTL_SECONDS=900
+VOD_CALLBACK_MAX_AGE_SECONDS=480

@@ -51,3 +51,6 @@ nbdist/
 !*/build/*.xml
 
 .flattened-pom.xml
+
+# Local Spring configuration may contain credentials.
+/ruoyi-admin/src/main/resources/application-local.yml

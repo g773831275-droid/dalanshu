@@ -272,3 +272,6 @@ justauth:
       client-id: 10**********6
       client-secret: 1f7d08**********5b7**********29e
       redirect-uri: ${justauth.address}/social-callback?source=gitea
+
+--- # 本机配置优先于上述 dev 默认值；文件缺失时继续使用 dev 配置
+spring.config.import: optional:classpath:application-local.yml

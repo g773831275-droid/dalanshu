@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS `dalan_post_v1` (
   `title` varchar(120) NOT NULL,
   `content` text NOT NULL,
   `images` json NOT NULL,
+  `video_asset_id` varchar(64) DEFAULT NULL COMMENT '关联的视频资产',
   `cover` varchar(500) NOT NULL DEFAULT '',
   `ratio` varchar(10) NOT NULL DEFAULT '4/5',
   `tag` varchar(20) DEFAULT NULL,
@@ -100,6 +101,7 @@ CREATE TABLE IF NOT EXISTS `dalan_post_v1` (
   KEY `idx_dalan_post_feed` (`status`,`created_at`,`id`),
   KEY `idx_dalan_post_circle` (`circle_id`,`status`,`created_at`,`id`),
   KEY `idx_dalan_post_author` (`author_id`,`status`,`created_at`,`id`),
+  KEY `idx_dalan_post_video_asset` (`video_asset_id`),
   FULLTEXT KEY `ft_dalan_post_search` (`title`,`content`) WITH PARSER ngram
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='大蓝书帖子 v1';
 

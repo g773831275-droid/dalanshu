@@ -1,4 +1,4 @@
-import { ThumbsUp, Users } from "lucide-react";
+import { Play, ThumbsUp, Users } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import type { Post } from "@/data/mockPosts";
 
@@ -8,23 +8,44 @@ const ratioClass: Record<Post["ratio"], string> = {
   "3/4": "aspect-[3/4]",
   "4/3": "aspect-[4/3]",
   "16/9": "aspect-[16/9]",
+  "9/16": "aspect-[9/16]",
 };
 
 export function PostCard({ post }: { post: Post }) {
   const initial = post.author.slice(0, 1);
   const circleId = post.circleId;
+  const isVideo = Boolean(post.video);
+  const videoDuration = post.video?.durationMs
+    ? `${Math.floor(post.video.durationMs / 60_000)}:${String(
+        Math.floor((post.video.durationMs % 60_000) / 1_000),
+      ).padStart(2, "0")}`
+    : null;
 
   return (
     <article className="group relative mb-3 md:mb-4 block break-inside-avoid overflow-hidden rounded-[16px] border border-[color:var(--border)] bg-white shadow-[var(--shadow-subtle)] transition-all duration-[220ms] ease-out hover:-translate-y-0.5 hover:shadow-[var(--shadow-floating)]">
-      {post.cover && (
+      {(post.cover || isVideo) && (
         <Link to="/posts/$id" params={{ id: post.id }} className="block" aria-label={post.title}>
-          <div className={`relative overflow-hidden ${ratioClass[post.ratio]}`}>
-            <img
-              src={post.cover}
-              alt={post.title}
-              loading="lazy"
-              className="h-full w-full object-cover transition-transform duration-[220ms] ease-out group-hover:scale-[1.015]"
-            />
+          <div
+            className={`relative overflow-hidden ${isVideo ? "aspect-[9/16] bg-black" : ratioClass[post.ratio]}`}
+          >
+            {post.cover ? (
+              <img
+                src={post.cover}
+                alt={post.title}
+                loading="lazy"
+                className="h-full w-full object-cover transition-transform duration-[220ms] ease-out group-hover:scale-[1.015]"
+              />
+            ) : null}
+            {isVideo ? (
+              <>
+                <span className="absolute left-1/2 top-1/2 flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-foreground shadow-[0_4px_16px_rgba(0,0,0,0.25)]">
+                  <Play className="ml-0.5 h-4 w-4 fill-current" strokeWidth={1.75} />
+                </span>
+                <span className="absolute bottom-2 right-2 rounded-md bg-black/65 px-1.5 py-0.5 text-[10.5px] font-medium text-white">
+                  {post.video?.status === "ready" ? videoDuration ?? "短视频" : "处理中"}
+                </span>
+              </>
+            ) : null}
             {post.tag && (
               <span className="glass-dark absolute left-2 top-2 rounded-[6px] px-1.5 py-0.5 text-[10.5px] font-medium text-white">
                 {post.tag}

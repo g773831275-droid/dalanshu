@@ -15,6 +15,7 @@ import org.dromara.common.redis.handler.RedisExceptionHandler;
 import org.redisson.client.codec.StringCodec;
 import org.redisson.codec.CompositeCodec;
 import org.redisson.codec.TypedJsonJacksonCodec;
+import org.redisson.config.SingleServerConfig;
 import org.redisson.spring.starter.RedissonAutoConfigurationCustomizer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -70,7 +71,7 @@ public class RedisConfig {
             RedissonProperties.SingleServerConfig singleServerConfig = redissonProperties.getSingleServerConfig();
             if (ObjectUtil.isNotNull(singleServerConfig)) {
                 // 使用单机模式
-                config.useSingleServer()
+                SingleServerConfig redissonConfig = config.useSingleServer()
                     //设置redis key前缀
                     .setNameMapper(new KeyPrefixHandler(redissonProperties.getKeyPrefix()))
                     .setTimeout(singleServerConfig.getTimeout())
@@ -79,6 +80,9 @@ public class RedisConfig {
                     .setSubscriptionConnectionPoolSize(singleServerConfig.getSubscriptionConnectionPoolSize())
                     .setConnectionMinimumIdleSize(singleServerConfig.getConnectionMinimumIdleSize())
                     .setConnectionPoolSize(singleServerConfig.getConnectionPoolSize());
+                if (singleServerConfig.isPasswordless()) {
+                    redissonConfig.setUsername(null).setPassword(null);
+                }
             }
             // 集群配置方式 参考下方注释
             RedissonProperties.ClusterServersConfig clusterServersConfig = redissonProperties.getClusterServersConfig();

@@ -16,6 +16,7 @@ function toPost(item: HomeFeedItem): Post {
     id: item.id,
     cover: item.cover.url,
     ratio: item.cover.ratio,
+    video: item.video,
     tag: item.tag ?? undefined,
     circleId: item.circle.id,
     circle: item.circle.name,

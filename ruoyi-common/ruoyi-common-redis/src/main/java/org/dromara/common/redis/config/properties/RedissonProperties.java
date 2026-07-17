@@ -45,6 +45,11 @@ public class RedissonProperties {
     public static class SingleServerConfig {
 
         /**
+         * Redis 服务未启用认证时，清除 Spring Redis 配置中继承的用户名和密码。
+         */
+        private boolean passwordless;
+
+        /**
          * 客户端名称
          */
         private String clientName;

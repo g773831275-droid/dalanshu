@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { TopNav } from "@/components/home/TopNav";
 import { MobileTopBar } from "@/components/home/MobileTopBar";
+import { ShortVideoPlayer } from "@/components/home/ShortVideoPlayer";
 import { LoginGateModal, useLoginGate } from "@/components/auth/LoginGate";
 import { posts, type Post } from "@/data/mockPosts";
 import { circles } from "@/data/mockCircles";
@@ -25,6 +26,7 @@ import {
   deletePostComment,
   getPost,
   getPostComments,
+  getVideoAsset,
   setPostReaction,
   type ApiComment,
   type Topic,
@@ -69,6 +71,7 @@ export const Route = createFileRoute("/posts/$id")({
       avatarColor: api.author.avatarColor,
       content: api.content,
       images: api.images.map((image) => image.url).filter((url): url is string => Boolean(url)),
+      video: api.video,
       topics: api.topics,
       createdAt: api.createdAt,
       isLiked: api.isLiked,
@@ -125,11 +128,19 @@ function formatCommentTime(value: string) {
 function PostDetail() {
   const { post } = Route.useLoaderData();
   const body = useMemo(() => buildBody(post), [post]);
+  const { data: videoAsset } = useQuery({
+    queryKey: ["dalanbook", "video", post.video?.assetId],
+    queryFn: () => getVideoAsset(post.video!.assetId),
+    enabled: Boolean(post.video && post.video.status !== "ready"),
+    refetchInterval: (query) => (query.state.data?.status === "ready" ? false : 3_000),
+  });
+  const video = videoAsset ?? post.video;
 
   // Derive 2–3 extra gallery images from cover pool (deterministic).
   const gallery = useMemo(() => {
+    if (video) return [];
     return post.images.length ? post.images : post.cover ? [post.cover] : [];
-  }, [post]);
+  }, [post, video]);
 
   const related = useMemo(
     () => posts.filter((p) => p.circle === post.circle && p.id !== post.id).slice(0, 6),
@@ -277,8 +288,34 @@ function PostDetail() {
               )}
             </nav>
 
-            {/* Gallery */}
-            {gallery.length > 0 ? (
+            {/* Media */}
+            {video ? (
+              video.status === "ready" ? (
+                <ShortVideoPlayer
+                  postId={post.id}
+                  posterUrl={video.posterUrl ?? post.cover}
+                  durationMs={video.durationMs}
+                />
+              ) : (
+                <div className="relative aspect-[9/16] overflow-hidden rounded-[12px] border border-[color:var(--border)] bg-black">
+                  {video.posterUrl ?? post.cover ? (
+                    <img
+                      src={video.posterUrl ?? post.cover}
+                      alt=""
+                      className="h-full w-full object-cover opacity-70"
+                    />
+                  ) : null}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/35 text-center text-white">
+                    <span className="h-7 w-7 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                    <span className="text-[13px] font-medium">
+                      {video.status === "failed" || video.status === "rejected"
+                        ? "视频处理失败"
+                        : "视频处理中"}
+                    </span>
+                  </div>
+                </div>
+              )
+            ) : gallery.length > 0 ? (
               <div className="overflow-hidden rounded-[16px] border border-[color:var(--border)] bg-[color:var(--action-muted)]">
                 <div className="relative">
                   <img

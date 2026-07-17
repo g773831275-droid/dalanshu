@@ -182,6 +182,30 @@ public class DalanbookV1Controller {
         return ResponseEntity.status(HttpStatus.CREATED).body(service.createPost(request));
     }
 
+    @RateLimiter(key = "T(org.dromara.common.satoken.utils.LoginHelper).getUserId()", time = 3600, count = 10)
+    @PostMapping("/media/videos/upload-credentials")
+    public ResponseEntity<VideoUploadCredentialResponse> videoUploadCredentials(
+        @Valid @RequestBody VideoUploadCredentialRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(service.createVideoUploadCredential(request));
+    }
+
+    @GetMapping("/media/videos/{id}")
+    public VideoAssetDto videoAsset(@PathVariable String id) {
+        return service.videoAsset(id);
+    }
+
+    @PostMapping("/media/videos/{id}/complete")
+    public VideoAssetDto completeVideoUpload(@PathVariable String id,
+                                              @Valid @RequestBody VideoUploadCompleteRequest request) {
+        return service.completeVideoUpload(id, request);
+    }
+
+    @SaIgnore
+    @GetMapping("/posts/{id}/video-playback")
+    public VideoPlaybackResponse videoPlayback(@PathVariable String id) {
+        return service.videoPlayback(id);
+    }
+
     @RateLimiter(key = "T(org.dromara.common.satoken.utils.LoginHelper).getUserId()", time = 60, count = 120)
     @PostMapping("/posts/{id}/useful")
     public UsefulResponse useful(@PathVariable String id, @Valid @RequestBody UsefulRequest request) {

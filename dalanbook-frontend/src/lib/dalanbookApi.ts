@@ -17,6 +17,9 @@ import {
     getMockPostComments,
     publishMockPost,
     setMockPostReaction,
+    getMockVideoAsset,
+    getMockVideoPlayback,
+    uploadMockVideo,
     uploadMockImage,
 } from "@/lib/postApi.mock";
 
@@ -32,13 +35,63 @@ export type Topic = {
 type Author = { id: string; name: string; avatarUrl?: string; avatarColor: string };
 type CircleBrief = { id: string; name: string };
 type ImageDto = { ossId?: string; url: string; ratio: Post["ratio"] };
-type ImageInput = { ossId: string; url: string; ratio: Post["ratio"] };
+type ImageInput = { ossId?: string; url: string; ratio: Post["ratio"] };
+
+export type VideoAssetStatus =
+    | "uploading"
+    | "uploaded"
+    | "processing"
+    | "ready"
+    | "failed"
+    | "rejected"
+    | "deleted";
+
+export type VideoAsset = {
+    id: string;
+    status: VideoAssetStatus;
+    posterUrl?: string;
+    durationMs?: number;
+    width?: number;
+    height?: number;
+    failureReason?: string;
+};
+
+export type VideoPostMedia = Omit<VideoAsset, "id" | "failureReason"> & { assetId: string };
+
+export type VideoUploadCredentials = {
+    assetId: string;
+    uploadUrl?: string;
+    uploadMethod?: "PUT";
+    uploadHeaders?: Record<string, string>;
+    applicationId?: number;
+    spaceName?: string;
+    workflowTemplateId?: string;
+    uploadSts?: {
+        accessKeyId: string;
+        secretAccessKey: string;
+        sessionToken: string;
+        expiredTime: string;
+        currentTime: string;
+        spaceName?: string;
+    };
+    expiresAt: string;
+};
+
+export type VideoPlaybackSource = {
+    url?: string;
+    vid?: string;
+    playAuth?: string;
+    expiresAt: string;
+    posterUrl?: string;
+    durationMs?: number;
+};
 
 export type ApiPost = {
     id: string;
     title: string;
     content: string;
     images: ImageInput[];
+    video?: VideoPostMedia;
     cover: string;
     ratio: Post["ratio"];
     tag?: PostTag;
@@ -87,6 +140,7 @@ export type GetPostCommentPageInput = {
 type FeedItem = {
     id: string;
     cover: { url: string; ratio: Post["ratio"] };
+    video?: VideoPostMedia;
     tag?: PostTag;
     title: string;
     circle: CircleBrief;
@@ -118,6 +172,7 @@ export type PublishPostInput = {
     content: string;
     circleId: string;
     images: ImageDto[];
+    videoAssetId?: string;
     ratio: Post["ratio"];
     tag: PostTag;
     topics?: string[];
@@ -130,6 +185,8 @@ export type UploadResult = {
     contentType: string;
     size: number;
 };
+
+export type UploadVideoProgress = (percent: number) => void;
 
 export type CreateCircleInput = Pick<ApiCircle, "name" | "cover" | "desc" | "category" | "tags">;
 
@@ -162,6 +219,7 @@ function toPost(item: FeedItem): Post {
         id: item.id,
         cover: item.cover.url,
         ratio: item.cover.ratio,
+        video: item.video,
         tag: item.tag,
         circleId: item.circle.id,
         circle: item.circle.name,
@@ -215,6 +273,193 @@ export async function uploadImage(file: File): Promise<UploadResult> {
     const body = new FormData();
     body.append("file", file);
     return authRequest<UploadResult>("/api/v1/uploads", { method: "POST", body });
+}
+
+export async function requestVideoUploadCredentials(file: File): Promise<VideoUploadCredentials> {
+    if (useMockApi) {
+        return {
+            assetId: `mock-video-${Date.now()}`,
+            uploadUrl: "mock://vod-upload",
+            expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+        };
+    }
+    return authRequest<VideoUploadCredentials>("/api/v1/media/videos/upload-credentials", {
+        method: "POST",
+        body: JSON.stringify({
+            fileName: file.name,
+            contentType: file.type,
+            size: file.size,
+        }),
+    });
+}
+
+function uploadToSignedUrl(
+    file: File,
+    credentials: VideoUploadCredentials,
+    onProgress?: UploadVideoProgress,
+): Promise<void> {
+    return new Promise((resolve, reject) => {
+        if (!credentials.uploadUrl) {
+            reject(new Error("视频服务未返回可用上传地址"));
+            return;
+        }
+        const request = new XMLHttpRequest();
+        if (credentials.uploadMethod && credentials.uploadMethod !== "PUT") {
+            reject(new Error("当前视频上传凭证不支持此上传方式"));
+            return;
+        }
+        request.open(credentials.uploadMethod ?? "PUT", credentials.uploadUrl);
+        Object.entries(credentials.uploadHeaders ?? {}).forEach(([name, value]) => {
+            request.setRequestHeader(name, value);
+        });
+        request.upload.onprogress = (event) => {
+            if (event.lengthComputable) onProgress?.(Math.round((event.loaded / event.total) * 100));
+        };
+        request.onerror = () => reject(new Error("视频上传失败，请检查网络后重试"));
+        request.onabort = () => reject(new Error("视频上传已取消"));
+        request.onload = () => {
+            if (request.status >= 200 && request.status < 300) {
+                onProgress?.(100);
+                resolve();
+                return;
+            }
+            reject(new Error(`视频上传失败（${request.status || "网络错误"}）`));
+        };
+        request.send(file);
+    });
+}
+
+function hasVolcengineUploadAuth(credentials: VideoUploadCredentials): boolean {
+    const auth = credentials.uploadSts;
+    const appId = credentials.applicationId ?? Number(import.meta.env.VITE_VOD_APP_ID);
+    return Boolean(
+        auth?.accessKeyId &&
+            auth.secretAccessKey &&
+            auth.sessionToken &&
+            auth.expiredTime &&
+            auth.currentTime &&
+            (credentials.spaceName || auth.spaceName) &&
+            Number.isInteger(appId) && appId > 0,
+    );
+}
+
+async function uploadToVolcengineVod(
+    file: File,
+    credentials: VideoUploadCredentials,
+    userId: string | undefined,
+    onProgress?: UploadVideoProgress,
+): Promise<string> {
+    const auth = credentials.uploadSts;
+    const spaceName = credentials.spaceName ?? auth?.spaceName;
+    const appId = credentials.applicationId ?? Number(import.meta.env.VITE_VOD_APP_ID);
+    if (!auth || !spaceName || !Number.isInteger(appId) || appId <= 0) {
+        throw new Error("视频服务未返回有效上传凭证");
+    }
+    const { default: TTUploader } = await import("tt-uploader");
+    const processAction = credentials.workflowTemplateId
+        ? [
+              { Name: "GetMeta" as const },
+              {
+                  Name: "StartWorkflow" as const,
+                  Input: { TemplateId: credentials.workflowTemplateId },
+              },
+          ]
+        : undefined;
+    return new Promise<string>((resolve, reject) => {
+        const uploader = new TTUploader({
+            userId: userId ?? "anonymous",
+            appId,
+            videoConfig: { spaceName, processAction },
+            useLocalStorage: false,
+            useServerCurrentTime: true,
+            noLog: true,
+        });
+        const key = uploader.addFile({
+            file,
+            fileName: file.name,
+            type: "video",
+            processAction,
+            stsToken: {
+                AccessKeyId: auth.accessKeyId,
+                SecretAccessKey: auth.secretAccessKey,
+                SessionToken: auth.sessionToken,
+                ExpiredTime: auth.expiredTime,
+                CurrentTime: auth.currentTime,
+            },
+        });
+        const clearListeners = () => {
+            uploader.removeAllListeners("progress");
+            uploader.removeAllListeners("complete");
+            uploader.removeAllListeners("error");
+        };
+        uploader.on("progress", (info) => {
+            const percent = Number(info.percent);
+            if (Number.isFinite(percent)) onProgress?.(Math.round(percent));
+        });
+        uploader.once("complete", (info) => {
+            clearListeners();
+            const vid = videoIdFromUploadResult(info);
+            if (!vid) {
+                reject(new Error("视频服务未返回上传结果，请重新选择视频"));
+                return;
+            }
+            onProgress?.(100);
+            resolve(vid);
+        });
+        uploader.once("error", (info) => {
+            clearListeners();
+            reject(new Error(typeof info.message === "string" ? info.message : "视频上传失败"));
+        });
+        uploader.start(key);
+    });
+}
+
+function videoIdFromUploadResult(info: Record<string, unknown>): string | undefined {
+    const candidates = [
+        info.vid,
+        info.Vid,
+        (info.data as Record<string, unknown> | undefined)?.vid,
+        (info.data as Record<string, unknown> | undefined)?.Vid,
+        (info.result as Record<string, unknown> | undefined)?.vid,
+        (info.result as Record<string, unknown> | undefined)?.Vid,
+    ];
+    return candidates.find((candidate): candidate is string => typeof candidate === "string" && candidate.length > 0);
+}
+
+export async function uploadVideoFile(
+    file: File,
+    onProgress?: UploadVideoProgress,
+    userId?: string,
+): Promise<VideoAsset> {
+    if (useMockApi) return uploadMockVideo(file, onProgress);
+    const credentials = await requestVideoUploadCredentials(file);
+    if (hasVolcengineUploadAuth(credentials)) {
+        const vid = await uploadToVolcengineVod(file, credentials, userId, onProgress);
+        await completeVideoUpload(credentials.assetId, vid);
+    } else {
+        await uploadToSignedUrl(file, credentials, onProgress);
+    }
+    return getVideoAsset(credentials.assetId);
+}
+
+export function getVideoAsset(id: string): Promise<VideoAsset> {
+    if (useMockApi) return getMockVideoAsset(id);
+    return authRequest<VideoAsset>(`/api/v1/media/videos/${encodeURIComponent(id)}`);
+}
+
+export async function completeVideoUpload(id: string, vid: string): Promise<void> {
+    if (useMockApi) return;
+    await authRequest<void>(`/api/v1/media/videos/${encodeURIComponent(id)}/complete`, {
+        method: "POST",
+        body: JSON.stringify({ vid }),
+    });
+}
+
+export function getVideoPlayback(postId: string): Promise<VideoPlaybackSource> {
+    if (useMockApi) return getMockVideoPlayback(postId);
+    return authRequest<VideoPlaybackSource>(
+        `/api/v1/posts/${encodeURIComponent(postId)}/video-playback`,
+    );
 }
 
 export async function setPostReaction(id: string, type: PostReactionType, active: boolean) {
