@@ -381,9 +381,9 @@ function EmailRegisterForm() {
             cd.start();
         } catch (error) {
             setErrors({ form: error instanceof Error ? error.message : "验证码发送失败" });
+            refreshCaptcha();
         } finally {
             setSending(false);
-            refreshCaptcha();
         }
     };
 

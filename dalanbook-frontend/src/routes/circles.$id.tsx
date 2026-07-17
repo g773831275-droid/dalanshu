@@ -1,14 +1,27 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Check, Users, MessageSquare, Share2, Pin } from "lucide-react";
+import { toast } from "sonner";
 import { TopNav } from "@/components/home/TopNav";
 import { MobileTopBar } from "@/components/home/MobileTopBar";
 import { MobileBottomNav } from "@/components/home/MobileBottomNav";
 import { PostCard } from "@/components/home/PostCard";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { authStore, useAuthUser } from "@/lib/authStore";
-import { getCircle, getCirclePostPage, setCircleMembership } from "@/lib/dalanbookApi";
+import {
+    getCircle,
+    getCirclePinnedItems,
+    getCirclePostPage,
+    setCircleMembership,
+    type CirclePinnedItem,
+} from "@/lib/dalanbookApi";
 
 export const Route = createFileRoute("/circles/$id")({
     head: () => ({ meta: [{ title: "圈子 · 大蓝书" }] }),
@@ -22,10 +35,19 @@ const tabs = [
 
 type TabKey = (typeof tabs)[number]["key"];
 
-const pinned = [
-    { title: "圈子公约 · 请先阅读再发帖", meta: "版主 · 3.2k 阅读" },
-    { title: "本月主题:真实的效率复盘", meta: "活动 · 进行中" },
-];
+function formatCount(value: number) {
+    return new Intl.NumberFormat("zh-CN", {
+        notation: "compact",
+        maximumFractionDigits: 1,
+    }).format(value);
+}
+
+function pinnedMeta(item: CirclePinnedItem) {
+    if (item.kind === "activity" && item.status) {
+        return `${item.publisher.name} · ${item.status === "active" ? "进行中" : "已结束"}`;
+    }
+    return `${item.publisher.name} · ${formatCount(item.viewCount)} 阅读`;
+}
 
 function CircleDetail() {
     const { id } = Route.useParams();
@@ -49,16 +71,37 @@ function CircleDetail() {
         initialPageParam: null as string | null,
         getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.nextCursor : undefined),
     });
+    const {
+        data: pinnedItems = [],
+        isLoading: pinnedLoading,
+        isError: pinnedError,
+    } = useQuery({
+        queryKey: ["dalanbook", "circle", id, "pinned-items"],
+        queryFn: () => getCirclePinnedItems(id),
+        staleTime: 5 * 60_000,
+    });
     const [joinedOverride, setJoinedOverride] = useState<boolean | null>(null);
     const [joining, setJoining] = useState(false);
     const joined = joinedOverride ?? !!circle?.joined;
     const [tab, setTab] = useState<TabKey>("recommend");
+    const [selectedPinned, setSelectedPinned] = useState<CirclePinnedItem | null>(null);
 
     const circlePosts = useMemo(() => {
         const loadedPosts = postPages?.pages.flatMap((page) => page.items) ?? [];
         if (tab === "recommend") return [...loadedPosts].sort((a, b) => b.useful - a.useful);
         return loadedPosts;
     }, [postPages, tab]);
+    const rules = pinnedItems.find((item) => item.kind === "rules");
+
+    async function copyCircleLink() {
+        const url = `${window.location.origin}/circles/${encodeURIComponent(id)}`;
+        try {
+            await navigator.clipboard.writeText(url);
+            toast.success("圈子链接已复制");
+        } catch {
+            toast.error("复制失败，请重试");
+        }
+    }
 
     async function toggleMembership() {
         if (!user) {
@@ -185,6 +228,8 @@ function CircleDetail() {
                                 )}
                             </button>
                             <button
+                                type="button"
+                                onClick={() => void copyCircleLink()}
                                 className="flex h-10 w-10 items-center justify-center rounded-[12px] border border-[color:var(--border-default)] bg-white/60 text-text-secondary transition-colors hover:text-foreground"
                                 aria-label="分享"
                             >
@@ -236,10 +281,22 @@ function CircleDetail() {
                         {/* Pinned */}
                         {tab === "recommend" && (
                             <div className="mb-5 space-y-2">
-                                {pinned.map((p: { title: string; meta: string }) => (
-                                    <div
-                                        key={p.title}
-                                        className="flex items-center gap-3 rounded-[14px] border border-[color:var(--border)] bg-white/60 px-4 py-3"
+                                {pinnedLoading && (
+                                    <div className="rounded-[14px] border border-[color:var(--border)] bg-white/60 px-4 py-3 text-[12.5px] text-text-tertiary">
+                                        正在加载置顶内容…
+                                    </div>
+                                )}
+                                {pinnedError && (
+                                    <div className="rounded-[14px] border border-[color:var(--border)] bg-white/60 px-4 py-3 text-[12.5px] text-text-tertiary">
+                                        置顶内容加载失败，请稍后重试
+                                    </div>
+                                )}
+                                {pinnedItems.map((item) => (
+                                    <button
+                                        type="button"
+                                        key={item.id}
+                                        onClick={() => setSelectedPinned(item)}
+                                        className="flex w-full items-center gap-3 rounded-[14px] border border-[color:var(--border)] bg-white/60 px-4 py-3 text-left transition-colors hover:border-foreground/25 hover:bg-white/80"
                                     >
                                         <Pin
                                             className="h-4 w-4 shrink-0 text-text-tertiary"
@@ -247,14 +304,14 @@ function CircleDetail() {
                                         />
                                         <div className="min-w-0 flex-1">
                                             <div className="truncate text-[14px] font-medium text-foreground">
-                                                {p.title}
+                                                {item.title}
                                             </div>
                                             <div className="text-[11.5px] text-text-tertiary">
-                                                {p.meta}
+                                                {pinnedMeta(item)}
                                             </div>
                                         </div>
                                         <span className="text-[11px] text-text-tertiary">置顶</span>
-                                    </div>
+                                    </button>
                                 ))}
                             </div>
                         )}
@@ -321,16 +378,23 @@ function CircleDetail() {
                                 </dl>
                             </section>
 
-                            <section className="rounded-[16px] border border-[color:var(--border)] bg-white/70 p-5">
-                                <h3 className="mb-3 text-[13px] font-semibold text-foreground">
-                                    圈子公约
-                                </h3>
-                                <ol className="space-y-2 text-[12.5px] leading-relaxed text-text-secondary">
-                                    <li>1. 分享真实经验，拒绝营销与洗稿。</li>
-                                    <li>2. 提问前请先搜索，避免重复。</li>
-                                    <li>3. 尊重不同观点，就事论事。</li>
-                                </ol>
-                            </section>
+                            {rules && (
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedPinned(rules)}
+                                    className="w-full rounded-[16px] border border-[color:var(--border)] bg-white/70 p-5 text-left transition-colors hover:border-foreground/25 hover:bg-white/90"
+                                >
+                                    <h3 className="mb-3 text-[13px] font-semibold text-foreground">
+                                        圈子公约
+                                    </h3>
+                                    <p className="line-clamp-6 whitespace-pre-line text-[12.5px] leading-relaxed text-text-secondary">
+                                        {rules.content}
+                                    </p>
+                                    <span className="mt-3 inline-block text-[11.5px] font-medium text-foreground">
+                                        查看完整公约
+                                    </span>
+                                </button>
+                            )}
 
                             <section className="rounded-[16px] border border-[color:var(--border)] bg-white/70 p-5">
                                 <h3 className="mb-3 text-[13px] font-semibold text-foreground">
@@ -358,6 +422,33 @@ function CircleDetail() {
             </main>
 
             <MobileBottomNav />
+            <Dialog
+                open={selectedPinned !== null}
+                onOpenChange={(open) => !open && setSelectedPinned(null)}
+            >
+                <DialogContent className="max-h-[85vh] max-w-[640px] overflow-y-auto rounded-[20px] border-[color:var(--border)] bg-white p-6 md:p-8">
+                    {selectedPinned && (
+                        <>
+                            <DialogHeader>
+                                <DialogTitle className="pr-8 text-[20px] leading-snug">
+                                    {selectedPinned.title}
+                                </DialogTitle>
+                                <DialogDescription className="text-[12px] text-text-tertiary">
+                                    {pinnedMeta(selectedPinned)} · 发布于{" "}
+                                    {new Intl.DateTimeFormat("zh-CN", {
+                                        year: "numeric",
+                                        month: "long",
+                                        day: "numeric",
+                                    }).format(new Date(selectedPinned.publishedAt))}
+                                </DialogDescription>
+                            </DialogHeader>
+                            <div className="whitespace-pre-wrap text-[14px] leading-7 text-text-secondary">
+                                {selectedPinned.content}
+                            </div>
+                        </>
+                    )}
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

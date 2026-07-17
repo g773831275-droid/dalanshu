@@ -17,6 +17,7 @@ import { MobileBottomNav } from "@/components/home/MobileBottomNav";
 import { PostCard } from "@/components/home/PostCard";
 import cover from "@/assets/cover-portrait-pm.jpg";
 import { ProfileEditorDialog } from "@/components/profile/ProfileEditorDialog";
+import { UserRelationDialog } from "@/components/profile/UserRelationDialog";
 import { ageRangeLabel } from "@/data/regions";
 import { AuthApiError, getMyProfile, reportWebDevice, type MyProfile } from "@/lib/authApi";
 import { authStore, useAuthUser } from "@/lib/authStore";
@@ -27,6 +28,7 @@ import {
     getUserProfile,
     setUserFollowing,
     type CommunityUser,
+    type UserRelationType,
 } from "@/lib/userApi";
 
 export const Route = createFileRoute("/u/$id")({
@@ -115,6 +117,7 @@ function UserProfileContent({ loadedUser }: { loadedUser: CommunityUser }) {
     const [user, setUser] = useState(loadedUser);
     const [tab, setTab] = useState<TabKey>("posts");
     const [editing, setEditing] = useState(false);
+    const [relationType, setRelationType] = useState<UserRelationType | null>(null);
     const [followUpdating, setFollowUpdating] = useState(false);
     const isOwnProfile = routeUserId === "me" || user.id === authUser?.id;
 
@@ -283,26 +286,38 @@ function UserProfileContent({ loadedUser }: { loadedUser: CommunityUser }) {
                         </div>
                     </div>
 
-                    <dl className="mt-5 grid grid-cols-3 gap-2 border-t border-[color:var(--border)] pt-4 text-center text-[12px] text-text-tertiary">
+                    <div className="mt-5 grid grid-cols-3 gap-2 border-t border-[color:var(--border)] pt-4 text-center text-[12px] text-text-tertiary">
                         <div>
-                            <dd className="text-[18px] font-semibold text-foreground">
+                            <div className="text-[18px] font-semibold text-foreground">
                                 {formatCount(user.postCount)}
-                            </dd>
-                            <dt className="mt-0.5">作品</dt>
+                            </div>
+                            <div className="mt-0.5">作品</div>
                         </div>
-                        <div>
-                            <dd className="text-[18px] font-semibold text-foreground">
+                        <button
+                            type="button"
+                            onClick={() => setRelationType("followers")}
+                            className="rounded-[10px] py-1 transition-colors hover:bg-black/[0.035] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/20"
+                            aria-haspopup="dialog"
+                            aria-label={`查看 ${displayName} 的粉丝`}
+                        >
+                            <span className="block text-[18px] font-semibold text-foreground">
                                 {formatCount(user.followerCount)}
-                            </dd>
-                            <dt className="mt-0.5">粉丝</dt>
-                        </div>
-                        <div>
-                            <dd className="text-[18px] font-semibold text-foreground">
+                            </span>
+                            <span className="mt-0.5 block">粉丝</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setRelationType("following")}
+                            className="rounded-[10px] py-1 transition-colors hover:bg-black/[0.035] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/20"
+                            aria-haspopup="dialog"
+                            aria-label={`查看 ${displayName} 的关注`}
+                        >
+                            <span className="block text-[18px] font-semibold text-foreground">
                                 {formatCount(user.followingCount)}
-                            </dd>
-                            <dt className="mt-0.5">关注</dt>
-                        </div>
-                    </dl>
+                            </span>
+                            <span className="mt-0.5 block">关注</span>
+                        </button>
+                    </div>
                 </section>
 
                 <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1fr_300px]">
@@ -403,6 +418,13 @@ function UserProfileContent({ loadedUser }: { loadedUser: CommunityUser }) {
             </main>
 
             <MobileBottomNav />
+            <UserRelationDialog
+                open={relationType !== null}
+                type={relationType ?? "followers"}
+                userId={user.id}
+                userName={displayName}
+                onClose={() => setRelationType(null)}
+            />
             {myProfile && (
                 <ProfileEditorDialog
                     open={editing}

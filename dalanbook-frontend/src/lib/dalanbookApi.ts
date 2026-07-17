@@ -6,6 +6,7 @@ import {
     createMockCircle,
     getMockCircle,
     getMockCirclePage,
+    getMockCirclePinnedItems,
     getMockCirclePostPage,
     getMockMyCircles,
     setMockCircleMembership,
@@ -38,13 +39,7 @@ type ImageDto = { ossId?: string; url: string; ratio: Post["ratio"] };
 type ImageInput = { ossId?: string; url: string; ratio: Post["ratio"] };
 
 export type VideoAssetStatus =
-    | "uploading"
-    | "uploaded"
-    | "processing"
-    | "ready"
-    | "failed"
-    | "rejected"
-    | "deleted";
+    "uploading" | "uploaded" | "processing" | "ready" | "failed" | "rejected" | "deleted";
 
 export type VideoAsset = {
     id: string;
@@ -165,6 +160,28 @@ export type ApiCircle = {
     isOwner: boolean;
     ownerId: string;
     createdAt: string;
+};
+
+export type CirclePinnedItemKind = "rules" | "announcement" | "activity";
+export type CirclePinnedItemStatus = "active" | "ended" | null;
+
+export type CirclePinnedItem = {
+    id: string;
+    kind: CirclePinnedItemKind;
+    title: string;
+    content: string;
+    publisher: {
+        id: string;
+        name: string;
+    };
+    viewCount: number;
+    status: CirclePinnedItemStatus;
+    publishedAt: string;
+    pinnedAt: string;
+};
+
+type CirclePinnedItemsResponse = {
+    items: CirclePinnedItem[];
 };
 
 export type PublishPostInput = {
@@ -313,7 +330,8 @@ function uploadToSignedUrl(
             request.setRequestHeader(name, value);
         });
         request.upload.onprogress = (event) => {
-            if (event.lengthComputable) onProgress?.(Math.round((event.loaded / event.total) * 100));
+            if (event.lengthComputable)
+                onProgress?.(Math.round((event.loaded / event.total) * 100));
         };
         request.onerror = () => reject(new Error("视频上传失败，请检查网络后重试"));
         request.onabort = () => reject(new Error("视频上传已取消"));
@@ -334,12 +352,13 @@ function hasVolcengineUploadAuth(credentials: VideoUploadCredentials): boolean {
     const appId = credentials.applicationId ?? Number(import.meta.env.VITE_VOD_APP_ID);
     return Boolean(
         auth?.accessKeyId &&
-            auth.secretAccessKey &&
-            auth.sessionToken &&
-            auth.expiredTime &&
-            auth.currentTime &&
-            (credentials.spaceName || auth.spaceName) &&
-            Number.isInteger(appId) && appId > 0,
+        auth.secretAccessKey &&
+        auth.sessionToken &&
+        auth.expiredTime &&
+        auth.currentTime &&
+        (credentials.spaceName || auth.spaceName) &&
+        Number.isInteger(appId) &&
+        appId > 0,
     );
 }
 
@@ -423,7 +442,9 @@ function videoIdFromUploadResult(info: Record<string, unknown>): string | undefi
         (info.result as Record<string, unknown> | undefined)?.vid,
         (info.result as Record<string, unknown> | undefined)?.Vid,
     ];
-    return candidates.find((candidate): candidate is string => typeof candidate === "string" && candidate.length > 0);
+    return candidates.find(
+        (candidate): candidate is string => typeof candidate === "string" && candidate.length > 0,
+    );
 }
 
 export async function uploadVideoFile(
@@ -523,7 +544,14 @@ export async function getCirclePage({
 }
 
 export async function getCircles(category?: string): Promise<Circle[]> {
-    return (await getCirclePage({ category, limit: 50 })).items;
+    const items: Circle[] = [];
+    let cursor: string | null = null;
+    do {
+        const page = await getCirclePage({ category, cursor, limit: 50 });
+        items.push(...page.items);
+        cursor = page.hasMore ? page.nextCursor : null;
+    } while (cursor);
+    return items;
 }
 
 export async function getMyCircles(ownedOnly = false): Promise<Circle[]> {
@@ -538,6 +566,14 @@ export async function getCircle(id: string): Promise<Circle> {
         ? await getMockCircle(id)
         : await authRequest<ApiCircle>(`/api/v1/circles/${encodeURIComponent(id)}`);
     return toCircle(circle);
+}
+
+export async function getCirclePinnedItems(id: string): Promise<CirclePinnedItem[]> {
+    if (useMockApi) return getMockCirclePinnedItems(id);
+    const data = await authRequest<CirclePinnedItemsResponse>(
+        `/api/v1/circles/${encodeURIComponent(id)}/pinned-items`,
+    );
+    return data.items;
 }
 
 export async function getCirclePostPage({

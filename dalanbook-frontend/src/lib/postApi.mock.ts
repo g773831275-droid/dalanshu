@@ -174,9 +174,7 @@ function clonePost(post: ApiPost): ApiPost {
     return {
         ...post,
         images: post.images.map((image) => ({ ...image })),
-        video: post.video
-            ? toVideoPostMedia(requireVideoAsset(post.video.assetId))
-            : undefined,
+        video: post.video ? toVideoPostMedia(requireVideoAsset(post.video.assetId)) : undefined,
         topics: post.topics.map((topic) => ({ ...topic })),
         circle: { ...post.circle },
         author: { ...post.author },
@@ -202,10 +200,7 @@ export function uploadMockImage(file: File): Promise<UploadResult> {
     });
 }
 
-export function uploadMockVideo(
-    file: File,
-    onProgress?: UploadVideoProgress,
-): Promise<VideoAsset> {
+export function uploadMockVideo(file: File, onProgress?: UploadVideoProgress): Promise<VideoAsset> {
     const allowedTypes = new Set(["video/mp4", "video/quicktime", "video/webm"]);
     if (!file.size) return Promise.reject(new Error("上传视频不能为空"));
     if (file.size > 200 * 1024 * 1024) return Promise.reject(new Error("视频不能超过 200MB"));
@@ -266,7 +261,6 @@ export async function publishMockPost(input: PublishPostInput): Promise<ApiPost>
     }
     if ((input.topics?.length ?? 0) > 5) throw new Error("话题数量不能超过 5 个");
     const circle = await getMockCircle(input.circleId);
-    if (!circle.isJoined) throw new Error("加入圈子后才能发布帖子");
     const video = input.videoAssetId ? requireVideoAsset(input.videoAssetId) : undefined;
     const id = `mock-post-${Date.now()}`;
     const createdAt = new Date().toISOString();

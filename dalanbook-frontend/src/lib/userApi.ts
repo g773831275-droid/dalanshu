@@ -1,6 +1,6 @@
 import type { Post } from "@/data/mockPosts";
 import { posts } from "@/data/mockPosts";
-import { findUser } from "@/data/mockUsers";
+import { findUser, users } from "@/data/mockUsers";
 import { authRequest } from "@/lib/authApi";
 import { useMockApi } from "@/lib/apiMode";
 
@@ -38,6 +38,14 @@ type FeedResponse = {
 
 export type UserPostPage = {
     items: Post[];
+    nextCursor: string | null;
+    hasMore: boolean;
+};
+
+export type UserRelationType = "followers" | "following";
+
+export type UserRelationPage = {
+    items: CommunityUser[];
     nextCursor: string | null;
     hasMore: boolean;
 };
@@ -94,6 +102,31 @@ function mockCursorOffset(cursor?: string | null): number {
     return match ? Number(match[1]) : 0;
 }
 
+function mockRelationCursorOffset(type: UserRelationType, cursor?: string | null): number {
+    if (!cursor) return 0;
+    const match = new RegExp(`^mock-user-${type}-(\\d+)$`).exec(cursor);
+    return match ? Number(match[1]) : 0;
+}
+
+function mockRelationPage(
+    id: string,
+    type: UserRelationType,
+    cursor?: string | null,
+    limit = 20,
+): UserRelationPage {
+    mockUser(id);
+    const source = users.filter((user) => user.id !== id).map((user) => mockUser(user.id));
+    const offset = mockRelationCursorOffset(type, cursor);
+    const items = source.slice(offset, offset + limit);
+    const nextOffset = offset + items.length;
+    const hasMore = nextOffset < source.length;
+    return {
+        items,
+        nextCursor: hasMore ? `mock-user-${type}-${nextOffset}` : null,
+        hasMore,
+    };
+}
+
 function mockPage(
     user: CommunityUser,
     type: "published" | "liked" | "favorite",
@@ -142,6 +175,20 @@ export function setUserFollowing(id: string, following: boolean): Promise<Commun
         method: "PUT",
         body: JSON.stringify({ following }),
     });
+}
+
+export function getUserRelationPage(
+    id: string,
+    type: UserRelationType,
+    cursor?: string | null,
+    limit = 20,
+): Promise<UserRelationPage> {
+    if (useMockApi) return Promise.resolve(mockRelationPage(id, type, cursor, limit));
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (cursor) params.set("cursor", cursor);
+    return authRequest<UserRelationPage>(
+        `/api/v1/users/${encodeURIComponent(id)}/${type}?${params.toString()}`,
+    );
 }
 
 export async function getUserPostPage(

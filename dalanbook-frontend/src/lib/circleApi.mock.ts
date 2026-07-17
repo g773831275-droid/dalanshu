@@ -1,6 +1,6 @@
 import { circles } from "@/data/mockCircles";
 import { posts, type Post } from "@/data/mockPosts";
-import type { ApiCircle, CreateCircleInput } from "@/lib/dalanbookApi";
+import type { ApiCircle, CirclePinnedItem, CreateCircleInput } from "@/lib/dalanbookApi";
 
 const currentUserId = "mock-current-user";
 
@@ -55,6 +55,40 @@ export function getMockMyCircles(ownedOnly: boolean): Promise<ApiCircle[]> {
 export function getMockCircle(id: string): Promise<ApiCircle> {
     const circle = circleState.find((item) => item.id === id);
     return circle ? delay(circle) : Promise.reject(new Error("圈子不存在"));
+}
+
+const pinnedItems: CirclePinnedItem[] = [
+    {
+        id: "mock-pin-rules",
+        kind: "rules",
+        title: "圈子公约 · 请先阅读再发帖",
+        content:
+            "1. 分享真实经验，拒绝营销与洗稿。\n2. 提问前请先搜索，避免重复。\n3. 尊重不同观点，就事论事。\n4. 涉及数据、产品效果或收益时，请说明样本和使用条件。",
+        publisher: { id: "mock-owner-1", name: "版主" },
+        viewCount: 3200,
+        status: null,
+        publishedAt: "2026-07-16T08:00:00.000Z",
+        pinnedAt: "2026-07-16T09:00:00.000Z",
+    },
+    {
+        id: "mock-pin-activity",
+        kind: "activity",
+        title: "本月主题：真实的效率复盘",
+        content:
+            "分享一个你亲自实践过的效率方法：它解决了什么问题、持续了多久、在哪些情况下失效。优秀内容将在月底整理成圈内精选。",
+        publisher: { id: "mock-owner-1", name: "活动" },
+        viewCount: 860,
+        status: "active",
+        publishedAt: "2026-07-15T08:00:00.000Z",
+        pinnedAt: "2026-07-15T08:30:00.000Z",
+    },
+];
+
+export function getMockCirclePinnedItems(id: string): Promise<CirclePinnedItem[]> {
+    if (!circleState.some((circle) => circle.id === id)) {
+        return Promise.reject(new Error("圈子不存在"));
+    }
+    return delay(pinnedItems.map((item) => ({ ...item, publisher: { ...item.publisher } })));
 }
 
 function circlePostCursorOffset(cursor?: string | null): number {
