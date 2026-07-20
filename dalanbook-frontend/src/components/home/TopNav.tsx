@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { Logo } from "@/components/brand/Logo";
 import { HomeSearch } from "@/components/home/HomeSearch";
+import { AdaptiveImage } from "@/components/ui/adaptive-image";
 import { authStore, useAuthUser } from "@/lib/authStore";
 import { logout, reportWebDevice } from "@/lib/authApi";
 import { getNotificationUnreadCount } from "@/lib/notificationApi";
@@ -81,10 +82,11 @@ export function TopNav() {
                                 className="ml-1 flex h-9 items-center gap-2 rounded-[10px] px-2 text-[13px] font-medium text-foreground transition-colors hover:bg-black/[0.04]"
                             >
                                 {user.avatar ? (
-                                    <img
+                                    <AdaptiveImage
                                         src={user.avatar}
                                         alt=""
-                                        className="h-7 w-7 rounded-full object-cover"
+                                        sizes="28px"
+                                        className="h-7 w-7 rounded-full"
                                     />
                                 ) : (
                                     <span

@@ -17,6 +17,7 @@ import { TopNav } from "@/components/home/TopNav";
 import { MobileTopBar } from "@/components/home/MobileTopBar";
 import { ShortVideoPlayer } from "@/components/home/ShortVideoPlayer";
 import { LoginGateModal, useLoginGate } from "@/components/auth/LoginGate";
+import { AdaptiveImage } from "@/components/ui/adaptive-image";
 import { posts, type Post } from "@/data/mockPosts";
 import { circles } from "@/data/mockCircles";
 import { AuthApiError } from "@/lib/authApi";
@@ -352,10 +353,12 @@ function PostDetail() {
               ) : (
                 <div className="relative aspect-[9/16] overflow-hidden rounded-[12px] border border-[color:var(--border)] bg-black">
                   {(video.posterUrl ?? post.cover) ? (
-                    <img
+                    <AdaptiveImage
                       src={video.posterUrl ?? post.cover}
                       alt=""
-                      className="h-full w-full object-cover opacity-70"
+                      priority
+                      sizes="(max-width: 1023px) calc(100vw - 32px), 860px"
+                      className="opacity-70"
                     />
                   ) : null}
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/35 text-center text-white">
@@ -370,12 +373,16 @@ function PostDetail() {
               )
             ) : gallery.length > 0 ? (
               <div className="overflow-hidden rounded-[16px] border border-[color:var(--border)] bg-[color:var(--action-muted)]">
-                <div className="relative">
-                  <img
+                <div className="relative flex min-h-[220px] max-h-[72svh] w-full items-center justify-center bg-black/[0.025] md:min-h-[360px]">
+                  <AdaptiveImage
                     key={gallery[activeImg]}
                     src={gallery[activeImg]}
                     alt={post.title}
-                    className="max-h-[560px] w-full object-cover"
+                    fill={false}
+                    fit="contain"
+                    priority
+                    sizes="(max-width: 1023px) calc(100vw - 32px), 860px"
+                    className="max-h-[72svh] w-auto max-w-full"
                   />
                   {post.tag && (
                     <span className="glass-dark absolute left-3 top-3 rounded-[6px] px-2 py-0.5 text-[11px] font-medium text-white">
@@ -384,7 +391,7 @@ function PostDetail() {
                   )}
                 </div>
                 {gallery.length > 1 && (
-                  <div className="flex gap-2 p-2">
+                  <div className="no-scrollbar flex gap-2 overflow-x-auto p-2">
                     {gallery.map((g, i) => (
                       <button
                         key={g + i}
@@ -397,7 +404,7 @@ function PostDetail() {
                         }
                         aria-label={`第 ${i + 1} 张`}
                       >
-                        <img src={g} alt="" className="h-full w-full object-cover" />
+                        <AdaptiveImage src={g} alt="" sizes="56px" />
                       </button>
                     ))}
                   </div>
@@ -414,10 +421,11 @@ function PostDetail() {
                 aria-label={`查看 ${post.author} 的主页`}
               >
                 {post.avatarUrl ? (
-                  <img
+                  <AdaptiveImage
                     src={post.avatarUrl}
                     alt=""
-                    className="h-10 w-10 shrink-0 rounded-full object-cover"
+                    sizes="40px"
+                    className="h-10 w-10 shrink-0 rounded-full"
                   />
                 ) : (
                   <span
@@ -493,7 +501,7 @@ function PostDetail() {
                 className="mt-6 flex items-center gap-3 rounded-[14px] border border-[color:var(--border)] bg-[color:var(--action-muted)]/60 p-3 transition-colors hover:bg-[color:var(--action-muted)]"
               >
                 <span className="h-12 w-12 shrink-0 overflow-hidden rounded-[10px]">
-                  <img src={circleMeta.cover} alt="" className="h-full w-full object-cover" />
+                  <AdaptiveImage src={circleMeta.cover} alt="" sizes="48px" />
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1 text-[13px] font-semibold text-foreground">
@@ -703,10 +711,11 @@ function PostDetail() {
                   aria-label={`查看 ${post.author} 的主页`}
                 >
                   {post.avatarUrl ? (
-                    <img
+                    <AdaptiveImage
                       src={post.avatarUrl}
                       alt=""
-                      className="h-12 w-12 shrink-0 rounded-full object-cover"
+                      sizes="48px"
+                      className="h-12 w-12 shrink-0 rounded-full"
                     />
                   ) : (
                     <span
@@ -769,7 +778,7 @@ function PostDetail() {
                   className="block overflow-hidden rounded-[16px] border border-[color:var(--border)] bg-white/70 transition-shadow hover:shadow-[var(--shadow-subtle)]"
                 >
                   <div className="relative h-24 w-full overflow-hidden">
-                    <img src={circleMeta.cover} alt="" className="h-full w-full object-cover" />
+                    <AdaptiveImage src={circleMeta.cover} alt="" sizes="320px" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
                   </div>
                   <div className="p-4">
@@ -796,7 +805,7 @@ function PostDetail() {
                       <li key={r.id}>
                         <Link to="/posts/$id" params={{ id: r.id }} className="flex gap-3 group">
                           <span className="h-14 w-14 shrink-0 overflow-hidden rounded-[10px]">
-                            <img src={r.cover} alt="" className="h-full w-full object-cover" />
+                            <AdaptiveImage src={r.cover} alt="" sizes="56px" />
                           </span>
                           <span className="flex min-w-0 flex-1 flex-col justify-between py-0.5">
                             <span className="line-clamp-2 text-[12.5px] leading-snug text-foreground group-hover:underline">

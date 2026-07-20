@@ -10,6 +10,7 @@ import { Bell, Bookmark, Heart, Loader2, UserPlus } from "lucide-react";
 import { TopNav } from "@/components/home/TopNav";
 import { MobileTopBar } from "@/components/home/MobileTopBar";
 import { MobileBottomNav } from "@/components/home/MobileBottomNav";
+import { AdaptiveImage } from "@/components/ui/adaptive-image";
 import { authStore, useAuthUser } from "@/lib/authStore";
 import {
     getNotificationPage,
@@ -56,10 +57,11 @@ function NotificationContent({ item }: { item: NotificationItem }) {
         <>
             <div className="relative shrink-0">
                 {item.actor.avatarUrl ? (
-                    <img
+                    <AdaptiveImage
                         src={item.actor.avatarUrl}
                         alt=""
-                        className="h-11 w-11 rounded-full object-cover"
+                        sizes="44px"
+                        className="h-11 w-11 rounded-full"
                     />
                 ) : (
                     <span

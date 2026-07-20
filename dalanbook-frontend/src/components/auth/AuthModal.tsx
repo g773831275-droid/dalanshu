@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
+import { AdaptiveImage } from "@/components/ui/adaptive-image";
 import { Eye, EyeOff, Loader2, X } from "lucide-react";
 import { authStore, useAuthModal, type AuthUser } from "@/lib/authStore";
 import {
@@ -174,10 +175,11 @@ function CaptchaField({
                     title="看不清，换一张"
                 >
                     {captcha.img ? (
-                        <img
+                        <AdaptiveImage
                             src={captcha.img}
                             alt="图形验证码"
-                            className="h-full w-full object-cover"
+                            fit="contain"
+                            sizes="112px"
                         />
                     ) : (
                         "刷新"

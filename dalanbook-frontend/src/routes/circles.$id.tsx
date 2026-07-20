@@ -7,6 +7,7 @@ import { TopNav } from "@/components/home/TopNav";
 import { MobileTopBar } from "@/components/home/MobileTopBar";
 import { MobileBottomNav } from "@/components/home/MobileBottomNav";
 import { PostCard } from "@/components/home/PostCard";
+import { AdaptiveImage } from "@/components/ui/adaptive-image";
 import {
     Dialog,
     DialogContent,
@@ -152,11 +153,7 @@ function CircleDetail() {
             {/* Cover */}
             <div className="relative">
                 <div className="relative h-[180px] w-full overflow-hidden md:h-[260px]">
-                    <img
-                        src={circle.cover}
-                        alt={circle.name}
-                        className="h-full w-full object-cover"
-                    />
+                    <AdaptiveImage src={circle.cover} alt={circle.name} priority sizes="100vw" />
                     <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-black/20 to-background" />
                 </div>
 
@@ -176,11 +173,7 @@ function CircleDetail() {
                     <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                         <div className="flex items-start gap-4">
                             <div className="h-16 w-16 shrink-0 overflow-hidden rounded-[16px] border border-white/60 shadow-[var(--shadow-subtle)] md:h-20 md:w-20">
-                                <img
-                                    src={circle.cover}
-                                    alt=""
-                                    className="h-full w-full object-cover"
-                                />
+                                <AdaptiveImage src={circle.cover} alt="" priority sizes="80px" />
                             </div>
                             <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-2">
@@ -445,11 +438,14 @@ function CircleDetail() {
                             {selectedPinned.images && selectedPinned.images.length > 0 && (
                                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                                     {selectedPinned.images.map((image) => (
-                                        <img
+                                        <AdaptiveImage
                                             key={image.ossId}
                                             src={image.url}
                                             alt=""
-                                            className="max-h-[420px] w-full rounded-[14px] object-cover"
+                                            fill={false}
+                                            fit="contain"
+                                            sizes="(max-width: 639px) calc(100vw - 48px), 280px"
+                                            className="max-h-[420px] w-full rounded-[14px] bg-black/[0.025]"
                                         />
                                     ))}
                                 </div>

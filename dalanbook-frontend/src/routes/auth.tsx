@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
 import { Eye, EyeOff, Loader2, ArrowLeft } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
+import { AdaptiveImage } from "@/components/ui/adaptive-image";
 import { authStore } from "@/lib/authStore";
 import {
     getCaptcha,
@@ -64,10 +65,12 @@ function AuthPage() {
             <div className="grid min-h-screen grid-cols-1 md:grid-cols-2">
                 {/* Left brand panel */}
                 <div className="relative hidden overflow-hidden md:flex md:flex-col md:justify-between md:p-10">
-                    <img
+                    <AdaptiveImage
                         src={cover}
                         alt=""
-                        className="absolute inset-0 h-full w-full object-cover"
+                        priority
+                        sizes="50vw"
+                        className="absolute inset-0"
                     />
                     <div className="absolute inset-0 bg-gradient-to-br from-black/60 via-black/40 to-black/70" />
                     <div className="relative z-10">
@@ -211,10 +214,11 @@ function CaptchaInput({
                     title="看不清，换一张"
                 >
                     {captcha.img ? (
-                        <img
+                        <AdaptiveImage
                             src={captcha.img}
                             alt="图形验证码"
-                            className="h-full w-full object-cover"
+                            fit="contain"
+                            sizes="112px"
                         />
                     ) : (
                         "刷新"

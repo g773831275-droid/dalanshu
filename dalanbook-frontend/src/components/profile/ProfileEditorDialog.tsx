@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Camera, Loader2, X } from "lucide-react";
+import { AdaptiveImage } from "@/components/ui/adaptive-image";
 import { AGE_RANGE_OPTIONS, CHINA_PROVINCES } from "@/data/regions";
 import { updateMyProfile, type MyProfile, type UpdateProfileInput } from "@/lib/authApi";
 import { uploadImage } from "@/lib/dalanbookApi";
@@ -93,10 +94,10 @@ export function ProfileEditorDialog({
                 <div className="mt-6 flex items-center gap-4 rounded-[16px] border border-[color:var(--border)] bg-black/[0.015] p-4">
                     <span className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#245BDB] text-[24px] font-semibold text-white shadow-[var(--shadow-subtle)]">
                         {avatarPreview ? (
-                            <img
+                            <AdaptiveImage
                                 src={avatarPreview}
                                 alt="头像预览"
-                                className="h-full w-full object-cover"
+                                sizes="80px"
                             />
                         ) : (
                             form.nickname.trim().slice(0, 1) || "我"

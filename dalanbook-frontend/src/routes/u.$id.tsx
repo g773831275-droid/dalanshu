@@ -19,6 +19,7 @@ import { PostCard } from "@/components/home/PostCard";
 import cover from "@/assets/cover-portrait-pm.jpg";
 import { ProfileEditorDialog } from "@/components/profile/ProfileEditorDialog";
 import { UserRelationDialog } from "@/components/profile/UserRelationDialog";
+import { AdaptiveImage } from "@/components/ui/adaptive-image";
 import { ageRangeLabel } from "@/data/regions";
 import { AuthApiError, getMyProfile, logout, reportWebDevice, type MyProfile } from "@/lib/authApi";
 import { authStore, useAuthUser } from "@/lib/authStore";
@@ -82,7 +83,7 @@ function joinedAt(value: string | null) {
 
 function UserAvatar({ user, className }: { user: CommunityUser; className: string }) {
     if (user.avatar)
-        return <img src={user.avatar} alt="" className={`${className} object-cover`} />;
+        return <AdaptiveImage src={user.avatar} alt="" sizes="80px" className={className} />;
     return (
         <span
             className={`${className} flex items-center justify-center bg-[#245BDB] font-semibold text-white`}
@@ -229,7 +230,7 @@ function UserProfileContent({ loadedUser }: { loadedUser: CommunityUser }) {
 
             <div className="relative">
                 <div className="relative h-[160px] w-full overflow-hidden md:h-[220px]">
-                    <img src={cover} alt="" className="h-full w-full object-cover" />
+                    <AdaptiveImage src={cover} alt="" priority sizes="100vw" />
                     <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-black/25 to-background" />
                 </div>
                 <Link
@@ -433,10 +434,10 @@ function UserProfileContent({ loadedUser }: { loadedUser: CommunityUser }) {
                                                         className="group flex items-center gap-3"
                                                     >
                                                         <span className="h-10 w-10 shrink-0 overflow-hidden rounded-[10px]">
-                                                            <img
+                                                            <AdaptiveImage
                                                                 src={circle.cover}
                                                                 alt=""
-                                                                className="h-full w-full object-cover"
+                                                                sizes="40px"
                                                             />
                                                         </span>
                                                         <span className="min-w-0 flex-1">

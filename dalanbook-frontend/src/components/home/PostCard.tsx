@@ -1,5 +1,6 @@
 import { Play, ThumbsUp, Users } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import { AdaptiveImage } from "@/components/ui/adaptive-image";
 import type { Post } from "@/data/mockPosts";
 
 const ratioClass: Record<Post["ratio"], string> = {
@@ -26,14 +27,14 @@ export function PostCard({ post }: { post: Post }) {
       {(post.cover || isVideo) && (
         <Link to="/posts/$id" params={{ id: post.id }} className="block" aria-label={post.title}>
           <div
-            className={`relative overflow-hidden ${isVideo ? "aspect-[9/16] bg-black" : ratioClass[post.ratio]}`}
+            className={`relative overflow-hidden ${isVideo ? "aspect-[9/16] bg-black" : (ratioClass[post.ratio] ?? "aspect-[4/5]")}`}
           >
             {post.cover ? (
-              <img
+              <AdaptiveImage
                 src={post.cover}
                 alt={post.title}
-                loading="lazy"
-                className="h-full w-full object-cover transition-transform duration-[220ms] ease-out group-hover:scale-[1.015]"
+                sizes="(max-width: 767px) calc(50vw - 18px), (max-width: 1279px) calc(33vw - 24px), 240px"
+                className="transition-transform duration-[220ms] ease-out group-hover:scale-[1.015]"
               />
             ) : null}
             {isVideo ? (
@@ -93,11 +94,11 @@ export function PostCard({ post }: { post: Post }) {
               aria-label={`查看 ${post.author} 的主页`}
             >
               {post.avatarUrl ? (
-                <img
+                <AdaptiveImage
                   src={post.avatarUrl}
                   alt=""
-                  loading="lazy"
-                  className="h-5 w-5 shrink-0 rounded-full object-cover"
+                  sizes="20px"
+                  className="h-5 w-5 shrink-0 rounded-full"
                 />
               ) : (
                 <span
@@ -115,11 +116,11 @@ export function PostCard({ post }: { post: Post }) {
           ) : (
             <div className="flex min-w-0 items-center gap-1.5">
               {post.avatarUrl ? (
-                <img
+                <AdaptiveImage
                   src={post.avatarUrl}
                   alt=""
-                  loading="lazy"
-                  className="h-5 w-5 shrink-0 rounded-full object-cover"
+                  sizes="20px"
+                  className="h-5 w-5 shrink-0 rounded-full"
                 />
               ) : (
                 <span

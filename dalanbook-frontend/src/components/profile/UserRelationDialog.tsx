@@ -1,6 +1,7 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Loader2, Users } from "lucide-react";
+import { AdaptiveImage } from "@/components/ui/adaptive-image";
 import type { ReactNode } from "react";
 import {
     Dialog,
@@ -112,10 +113,11 @@ function RelationRow({ user, onNavigate }: { user: CommunityUser; onNavigate: ()
 function UserAvatar({ user }: { user: CommunityUser }) {
     if (user.avatar) {
         return (
-            <img
+            <AdaptiveImage
                 src={user.avatar}
                 alt=""
-                className="h-11 w-11 shrink-0 rounded-full object-cover"
+                sizes="44px"
+                className="h-11 w-11 shrink-0 rounded-full"
             />
         );
     }

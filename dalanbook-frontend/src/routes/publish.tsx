@@ -12,6 +12,7 @@ import { Check, Hash, ImageIcon, Plus, Users, Video, X } from "lucide-react";
 import { LoginGateModal, useLoginGate } from "@/components/auth/LoginGate";
 import { MobileTopBar } from "@/components/home/MobileTopBar";
 import { TopNav } from "@/components/home/TopNav";
+import { AdaptiveImage } from "@/components/ui/adaptive-image";
 import { authStore, useAuthUser } from "@/lib/authStore";
 import {
     getCircles,
@@ -573,10 +574,10 @@ function PublishPage() {
                                     key={image.id}
                                     className="relative aspect-square overflow-hidden rounded-[12px] border border-[color:var(--border)]"
                                 >
-                                    <img
+                                    <AdaptiveImage
                                         src={image.previewUrl}
                                         alt=""
-                                        className="h-full w-full object-cover"
+                                        sizes="(max-width: 767px) calc(25vw - 16px), 150px"
                                     />
                                     {index === 0 && (
                                         <span className="absolute bottom-1 left-1 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
