@@ -11,8 +11,10 @@ const clientId = import.meta.env.VITE_APP_CLIENT_ID;
  * @returns
  */
 export function login(data: LoginData): AxiosPromise<LoginResult> {
+  const { username, ...loginData } = data;
   const params = {
-    ...data,
+    ...loginData,
+    account: username,
     clientId: data.clientId || clientId,
     grantType: data.grantType || 'password'
   };
