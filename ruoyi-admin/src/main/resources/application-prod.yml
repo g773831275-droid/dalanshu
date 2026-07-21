@@ -198,6 +198,20 @@ sms:
       signature: 您的短信签名
       sdk-app-id: 您的sdkAppId
 
+--- # 火山引擎短信。AK/SK 仅通过环境变量注入，禁止写入配置文件。
+volc-sms:
+  enabled: ${DALANSHU_VOLC_SMS_ENABLED:false}
+  access-key: ${DALANSHU_VOLC_SMS_ACCESS_KEY:}
+  secret-key: ${DALANSHU_VOLC_SMS_SECRET_KEY:}
+  # 短信服务“子账户管理”列表中的 subAccountId，不是 S1T_ 开头的签名 ID。
+  sms-account: ${DALANSHU_VOLC_SMS_ACCOUNT:}
+  # SendSms 的 Sign 参数填写审核通过的签名文字，例如“大蓝书”，不是 S1T_ 开头的签名资源 ID。
+  sign: ${DALANSHU_VOLC_SMS_SIGN:}
+  register-template-id: ${DALANSHU_VOLC_SMS_REGISTER_TEMPLATE_ID:}
+  code-expire-minutes: ${DALANSHU_VOLC_SMS_CODE_EXPIRE_MINUTES:5}
+  daily-max: ${DALANSHU_VOLC_SMS_DAILY_MAX:30}
+  region: ${DALANSHU_VOLC_SMS_REGION:cn-north-1}
+
 --- # 三方授权
 justauth:
   # 前端外网访问地址

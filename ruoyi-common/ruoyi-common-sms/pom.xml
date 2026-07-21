@@ -17,6 +17,12 @@
 
     <dependencies>
 
+        <!-- 火山引擎短信 SDK -->
+        <dependency>
+            <groupId>com.volcengine</groupId>
+            <artifactId>volc-sdk-java</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.dromara.sms4j</groupId>
             <artifactId>sms4j-spring-boot-starter</artifactId>

@@ -22,11 +22,9 @@ import org.dromara.common.mail.utils.MailUtils;
 import org.dromara.common.ratelimiter.annotation.RateLimiter;
 import org.dromara.common.ratelimiter.enums.LimitType;
 import org.dromara.common.redis.utils.RedisUtils;
+import org.dromara.common.sms.service.VolcSmsSender;
 import org.dromara.common.web.core.WaveAndCircleCaptcha;
 import org.dromara.common.web.config.properties.CaptchaProperties;
-import org.dromara.sms4j.api.SmsBlend;
-import org.dromara.sms4j.api.entity.SmsResponse;
-import org.dromara.sms4j.core.factory.SmsFactory;
 import org.dromara.web.domain.vo.CaptchaVo;
 import org.springframework.expression.Expression;
 import org.springframework.expression.ExpressionParser;
@@ -54,6 +52,7 @@ public class CaptchaController {
 
     private final CaptchaProperties captchaProperties;
     private final MailProperties mailProperties;
+    private final VolcSmsSender volcSmsSender;
 
     /**
      * 短信验证码
@@ -63,19 +62,10 @@ public class CaptchaController {
     @RateLimiter(key = "#phonenumber", time = 60, count = 1)
     @GetMapping({"/resource/sms/code", "/api/v1/auth/sms/code"})
     public R<Void> smsCode(@NotBlank(message = "{user.phonenumber.not.blank}") String phonenumber) {
+        String code = RandomUtil.randomNumbers(6);
+        volcSmsSender.sendRegisterCode(phonenumber, code);
         String key = GlobalConstants.CAPTCHA_CODE_KEY + phonenumber;
-        String code = RandomUtil.randomNumbers(4);
-        RedisUtils.setCacheObject(key, code, Duration.ofMinutes(Constants.CAPTCHA_EXPIRATION));
-        // 验证码模板id 自行处理 (查数据库或写死均可)
-        String templateId = "";
-        LinkedHashMap<String, String> map = new LinkedHashMap<>(1);
-        map.put("code", code);
-        SmsBlend smsBlend = SmsFactory.getSmsBlend("config1");
-        SmsResponse smsResponse = smsBlend.sendMessage(phonenumber, templateId, map);
-        if (!smsResponse.isSuccess()) {
-            log.error("验证码短信发送异常 => {}", smsResponse);
-            return R.fail(smsResponse.getData().toString());
-        }
+        RedisUtils.setCacheObject(key, code, volcSmsSender.codeExpiration());
         return R.ok();
     }
 
