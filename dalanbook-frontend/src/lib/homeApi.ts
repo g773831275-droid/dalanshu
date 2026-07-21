@@ -5,6 +5,7 @@ import {
     getMockHomeCircleRecommendation,
     getMockHomeFeed,
     getMockHomeLeftNav,
+    getMockHomePlacements,
     getMockSearchSuggestions,
 } from "@/lib/homeApi.mock";
 import type { HomeChannel } from "@/lib/homeUi";
@@ -69,6 +70,31 @@ export type HomeFeedResponse = {
     hasMore: boolean;
 };
 
+export type HomePopupAd = {
+    id: string;
+    version: number;
+    title: string;
+    description: string | null;
+    imageUrl: string;
+    ctaText: string | null;
+    targetUrl: string | null;
+};
+
+export type HomePinnedNotice = {
+    id: string;
+    title: string;
+    summary: string | null;
+    content: string;
+    ctaText: string | null;
+    targetUrl: string | null;
+    publishedAt: string | null;
+};
+
+export type HomePlacementsResponse = {
+    popupAd: HomePopupAd | null;
+    pinnedNotice: HomePinnedNotice | null;
+};
+
 export type HomeMyCircle = {
     id: string;
     name: string;
@@ -113,6 +139,11 @@ export type GetHomeFeedInput = {
 export function getHomeCategories(): Promise<HomeCategoriesResponse> {
     if (useMockApi) return getMockHomeCategories();
     return authRequest<HomeCategoriesResponse>("/api/v1/home/categories");
+}
+
+export function getHomePlacements(): Promise<HomePlacementsResponse> {
+    if (useMockApi) return getMockHomePlacements();
+    return authRequest<HomePlacementsResponse>("/api/v1/home/placements");
 }
 
 export function getSearchSuggestions(q = ""): Promise<SearchSuggestionsResponse> {

@@ -8,7 +8,9 @@ import type {
     HomeLeftNavResponse,
     SearchSuggestion,
     SearchSuggestionsResponse,
+    HomePlacementsResponse,
 } from "@/lib/homeApi";
+import adImage from "@/assets/cover-ai-desk.jpg";
 
 const categories: HomeCategoriesResponse = {
     categories: [
@@ -71,6 +73,28 @@ function delay<T>(value: T): Promise<T> {
     return new Promise((resolve) => globalThis.setTimeout(() => resolve(value), 180));
 }
 
+const placements: HomePlacementsResponse = {
+    popupAd: {
+        id: "mock-ad-summer-2026",
+        version: 2,
+        title: "把灵感放到桌面上",
+        description: "精选桌搭与效率工具，给你的下一次创作留出空间。",
+        imageUrl: adImage,
+        ctaText: "看看桌搭",
+        targetUrl: "/topics",
+    },
+    pinnedNotice: {
+        id: "mock-notice-release",
+        title: "大蓝书首页运营位已上线",
+        summary: "欢迎用置顶公告和广告弹窗，把重要内容送到首页。",
+        content:
+            "首页运营位支持排期、优先级和手动上下线。广告图片、公告正文与站内链接都会经过保存校验。",
+        ctaText: null,
+        targetUrl: null,
+        publishedAt: "2026-07-21T08:00:00Z",
+    },
+};
+
 function memberCount(text: string): number {
     const value = Number.parseFloat(text.replaceAll(",", ""));
     return Number.isFinite(value) ? Math.round(value * (text.includes("万") ? 10_000 : 1)) : 0;
@@ -84,6 +108,10 @@ function cursorOffset(cursor?: string | null): number {
 
 export function getMockHomeCategories(): Promise<HomeCategoriesResponse> {
     return delay(categories);
+}
+
+export function getMockHomePlacements(): Promise<HomePlacementsResponse> {
+    return delay(placements);
 }
 
 export function getMockSearchSuggestions(query: string): Promise<SearchSuggestionsResponse> {
