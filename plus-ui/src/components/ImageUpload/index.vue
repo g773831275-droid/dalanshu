@@ -148,7 +148,7 @@ const handleBeforeUpload = (file: any) => {
     return false;
   }
   if (props.fileSize) {
-    const isLt = file.size / 1024 / 1024 < props.fileSize;
+    const isLt = file.size / 1024 / 1024 <= props.fileSize;
     if (!isLt) {
       proxy?.$modal.msgError(`上传头像图片大小不能超过 ${props.fileSize} MB!`);
       return false;
