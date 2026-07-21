@@ -19,6 +19,7 @@ import org.dromara.system.mapper.dalanbook.v1.*;
 import org.dromara.system.service.ISysOssService;
 import org.dromara.system.service.dalanbook.cache.DalanbookHomeFeedCacheService;
 import org.dromara.system.service.dalanbook.cache.DalanbookHomeFeedSnapshot;
+import org.dromara.system.service.dalanbook.moderation.ContentModerationGateway;
 import org.dromara.system.service.dalanbook.vod.VolcengineVodGateway;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
@@ -82,6 +83,7 @@ public class DalanbookApiService {
     private final DalanbookHomeFeedCacheService homeFeedCacheService;
     private final VolcengineVodGateway vodGateway;
     private final VodProperties vodProperties;
+    private final ContentModerationGateway contentModerationGateway;
 
     public CategoriesResponse categories() {
         return new CategoriesResponse(CATEGORIES, "recommend");
@@ -237,6 +239,7 @@ public class DalanbookApiService {
     @Transactional(rollbackFor = Exception.class)
     public MyProfileDto updateMyProfile(UpdateProfileRequest request) {
         Long userId = requireUserId();
+        moderateTexts("profile-" + userId, request.nickname(), request.bio());
         if (!AGE_RANGES.contains(request.ageRange())) {
             throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_AGE_RANGE", "年龄段无效");
         }
@@ -523,6 +526,8 @@ public class DalanbookApiService {
     @Transactional(rollbackFor = Exception.class)
     public CircleDto createCircle(CreateCircleRequest request) {
         Long userId = requireUserId();
+        moderateTexts("circle-" + userId, request.name(), request.desc());
+        moderateTexts("circle-tag-" + userId, request.tags() == null ? List.of() : request.tags());
         if (circleMapper.selectCount(new LambdaQueryWrapper<DalanCircleV1>().eq(DalanCircleV1::getName, request.name().trim())) > 0) {
             throw new DalanApiException(HttpStatus.CONFLICT, "CIRCLE_NAME_EXISTS", "圈子名称已存在");
         }
@@ -741,6 +746,8 @@ public class DalanbookApiService {
     @Transactional(rollbackFor = Exception.class)
     public PostDto createPost(CreatePostRequest request) {
         Long userId = requireUserId();
+        moderateTexts("post-" + userId, request.title(), request.content());
+        moderateTexts("post-topic-" + userId, request.topics() == null ? List.of() : request.topics());
         DalanCircleV1 circle = findCircle(request.circleId());
         if (!TAGS.contains(request.tag())) {
             throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_POST_TAG", "帖子标签无效");
@@ -910,6 +917,7 @@ public class DalanbookApiService {
     @Transactional(rollbackFor = Exception.class)
     public CommentDto createComment(String postId, CreateCommentRequest request) {
         Long userId = requireUserId();
+        moderateTexts("comment-" + userId, request.content());
         DalanPostV1 post = findPost(postId);
         String parentId = clean(request.parentId());
         DalanComment parent = null;
@@ -1693,6 +1701,17 @@ public class DalanbookApiService {
             device.getOsVersion(), device.getBrowser(), device.getBrowserVersion(), device.getLastSeenAt());
     }
     private String clean(String value) { return value == null ? "" : value.trim(); }
+    private void moderateTexts(String dataIdPrefix, String... contents) {
+        for (int index = 0; index < contents.length; index++) {
+            String content = clean(contents[index]);
+            if (!content.isEmpty()) {
+                contentModerationGateway.checkText(content, dataIdPrefix + "-" + index);
+            }
+        }
+    }
+    private void moderateTexts(String dataIdPrefix, Collection<String> contents) {
+        moderateTexts(dataIdPrefix, contents.toArray(String[]::new));
+    }
     private String searchQuery(String value) {
         String query = clean(value);
         if (query.isEmpty()) {

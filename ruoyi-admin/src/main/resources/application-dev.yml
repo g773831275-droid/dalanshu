@@ -1,5 +1,5 @@
 --- # 本机私密配置（位于 Git 仓库外）
-spring.config.import: optional:file:${user.home}/.config/dalanshu/database.properties,optional:file:${user.home}/.config/dalanshu/tos.properties,optional:file:${user.home}/.config/dalanshu/redis.properties,optional:file:${user.home}/.config/dalanshu/mail.properties
+spring.config.import: optional:file:${user.home}/.config/dalanshu/database.properties,optional:file:${user.home}/.config/dalanshu/tos.properties,optional:file:${user.home}/.config/dalanshu/redis.properties,optional:file:${user.home}/.config/dalanshu/mail.properties,optional:file:${user.home}/.config/dalanshu/content-moderation.properties
 
 --- # 监控中心配置
 spring.boot.admin.client:
@@ -156,6 +156,15 @@ mail:
 dalanbook:
   auth:
     default-user-dept-id: 108
+  # 内容安全凭据从仓库外的 ~/.config/dalanshu/content-moderation.properties 注入。
+  content-moderation:
+    enabled: ${DALANSHU_CONTENT_MODERATION_ENABLED:false}
+    access-key-id: ${DALANSHU_CONTENT_MODERATION_ACCESS_KEY_ID:}
+    access-key-secret: ${DALANSHU_CONTENT_MODERATION_ACCESS_KEY_SECRET:}
+    region: ${DALANSHU_CONTENT_MODERATION_REGION:cn-shanghai}
+    endpoint: ${DALANSHU_CONTENT_MODERATION_ENDPOINT:green-cip.cn-shanghai.aliyuncs.com}
+    text-service: ${DALANSHU_CONTENT_MODERATION_TEXT_SERVICE:comment_detection}
+    image-service: ${DALANSHU_CONTENT_MODERATION_IMAGE_SERVICE:postImageCheck}
 
 --- # sms 短信 支持 阿里云 腾讯云 云片 等等各式各样的短信服务商
 # https://sms4j.com/doc3/ 差异配置文档地址 支持单厂商多配置，可以配置多个同时使用

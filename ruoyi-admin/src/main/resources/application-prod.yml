@@ -156,6 +156,15 @@ mail:
 dalanbook:
   auth:
     expose-dev-email-code: false
+  # AK/SK 必须通过环境变量或密钥管理服务注入，禁止写入配置文件。
+  content-moderation:
+    enabled: ${DALANSHU_CONTENT_MODERATION_ENABLED:false}
+    access-key-id: ${DALANSHU_CONTENT_MODERATION_ACCESS_KEY_ID:}
+    access-key-secret: ${DALANSHU_CONTENT_MODERATION_ACCESS_KEY_SECRET:}
+    region: ${DALANSHU_CONTENT_MODERATION_REGION:cn-shanghai}
+    endpoint: ${DALANSHU_CONTENT_MODERATION_ENDPOINT:green-cip.cn-shanghai.aliyuncs.com}
+    text-service: ${DALANSHU_CONTENT_MODERATION_TEXT_SERVICE:comment_detection}
+    image-service: ${DALANSHU_CONTENT_MODERATION_IMAGE_SERVICE:postImageCheck}
 
 --- # sms 短信 支持 阿里云 腾讯云 云片 等等各式各样的短信服务商
 # https://sms4j.com/doc3/ 差异配置文档地址 支持单厂商多配置，可以配置多个同时使用

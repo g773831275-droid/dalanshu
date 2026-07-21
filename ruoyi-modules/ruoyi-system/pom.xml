@@ -110,6 +110,11 @@
             <groupId>com.volcengine</groupId>
             <artifactId>volc-sdk-java</artifactId>
         </dependency>
+        <!-- 阿里云内容安全 -->
+        <dependency>
+            <groupId>com.aliyun</groupId>
+            <artifactId>green20220302</artifactId>
+        </dependency>
         <dependency>
             <groupId>javax.annotation</groupId>
             <artifactId>javax.annotation-api</artifactId>

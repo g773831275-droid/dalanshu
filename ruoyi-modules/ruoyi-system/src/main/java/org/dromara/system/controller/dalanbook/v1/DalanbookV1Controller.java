@@ -13,6 +13,7 @@ import org.dromara.system.controller.dalanbook.v1.DalanbookDtos.*;
 import org.dromara.system.domain.vo.SysOssVo;
 import org.dromara.system.service.ISysOssService;
 import org.dromara.system.service.dalanbook.DalanbookApiService;
+import org.dromara.system.service.dalanbook.moderation.ContentModerationGateway;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
@@ -33,6 +34,7 @@ public class DalanbookV1Controller {
 
     private final DalanbookApiService service;
     private final ISysOssService ossService;
+    private final ContentModerationGateway contentModerationGateway;
 
     @SaIgnore
     @GetMapping("/home/categories")
@@ -316,6 +318,12 @@ public class DalanbookV1Controller {
             throw new DalanApiException(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_FILE_TYPE", "仅支持 JPEG、PNG、WebP、GIF 图片");
         }
         SysOssVo oss = ossService.upload(file);
+        try {
+            contentModerationGateway.checkImage(oss.getUrl(), "upload-" + oss.getOssId());
+        } catch (RuntimeException exception) {
+            ossService.deleteWithValidByIds(List.of(oss.getOssId()), false);
+            throw exception;
+        }
         return ResponseEntity.status(HttpStatus.CREATED)
             .body(new UploadResponse(oss.getUrl(), String.valueOf(oss.getOssId()), file.getContentType(), file.getSize()));
     }
