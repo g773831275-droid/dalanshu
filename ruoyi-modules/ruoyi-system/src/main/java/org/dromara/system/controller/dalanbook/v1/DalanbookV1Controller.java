@@ -12,6 +12,7 @@ import org.dromara.common.ratelimiter.annotation.RateLimiter;
 import org.dromara.system.controller.dalanbook.v1.DalanbookDtos.*;
 import org.dromara.system.domain.vo.SysOssVo;
 import org.dromara.system.service.ISysOssService;
+import org.dromara.system.service.dalanbook.DalanHomePlacementService;
 import org.dromara.system.service.dalanbook.DalanbookApiService;
 import org.dromara.system.service.dalanbook.moderation.ContentModerationGateway;
 import org.springframework.http.HttpStatus;
@@ -33,6 +34,7 @@ public class DalanbookV1Controller {
     private static final Set<String> IMAGE_TYPES = Set.of("image/jpeg", "image/png", "image/webp", "image/gif");
 
     private final DalanbookApiService service;
+    private final DalanHomePlacementService homePlacementService;
     private final ISysOssService ossService;
     private final ContentModerationGateway contentModerationGateway;
 
@@ -49,6 +51,12 @@ public class DalanbookV1Controller {
                              @RequestParam(required = false) String cursor,
                              @RequestParam(defaultValue = "20") @Min(1) @Max(40) int limit) {
         return service.feed(categoryId, channel, cursor, limit);
+    }
+
+    @SaIgnore
+    @GetMapping("/home/placements")
+    public HomePlacementsResponse homePlacements() {
+        return homePlacementService.activePlacements();
     }
 
     @SaIgnore

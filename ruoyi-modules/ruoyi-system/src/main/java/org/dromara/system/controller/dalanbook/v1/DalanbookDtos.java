@@ -26,6 +26,11 @@ public final class DalanbookDtos {
     public record FeedItem(String id, Cover cover, String tag, String title, CircleBrief circle,
                            Author author, Useful useful, Instant createdAt, VideoBrief video) {}
     public record FeedResponse(List<FeedItem> items, String nextCursor, boolean hasMore) {}
+    public record HomePlacementsResponse(PopupAdDto popupAd, PinnedNoticeDto pinnedNotice) {}
+    public record PopupAdDto(String id, Integer version, String title, String description, String imageUrl,
+                             String ctaText, String targetUrl) {}
+    public record PinnedNoticeDto(String id, String title, String summary, String content, String ctaText,
+                                  String targetUrl, Instant publishedAt) {}
 
     public record CircleRecommendation(String id, String name, String desc, String membersText,
                                        long memberCount, boolean joined) {}
