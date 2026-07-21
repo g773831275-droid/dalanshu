@@ -24,6 +24,8 @@
 
 Flutter 使用 `webview_flutter` 加载正式 HTTPS 地址，例如 `https://<web-domain>/`。当前 `dalanbook-frontend` 是 TanStack Start 工程，包含服务端渲染入口，业务 API 使用 `/api` 相对路径。因此线上同源加载可以同时保留 SSR、路由直达和现有鉴权行为。
 
+当前默认加载 `http://118.196.139.226/`，由 `ALLOW_HTTP_ENTRY=true` 开启 HTTP 入口。本地联调可通过 `WEB_ENTRY_URL=http://127.0.0.1:5174/` 覆盖，Android 同时使用 `adb reverse tcp:5174 tcp:5174` 访问宿主机。正式上架前应切换生产 HTTPS 地址并设置 `ALLOW_HTTP_ENTRY=false`。
+
 不将 `.output/public` 直接作为 Flutter assets 内置。该目录只包含静态资源，不能替代 TanStack Start 服务端运行时；本地 `file://` 或应用内资源地址还会导致相对 API 地址、跨域策略和路由回退失效。
 
 ### 2.2 Flutter 容器职责
@@ -70,6 +72,7 @@ flutter-app/
 配置原则：
 
 - 应用名称、包名、图标、启动页、网页入口地址均通过环境或构建配置区分开发、测试、生产环境。
+- `WEB_ENTRY_URL` 默认指向当前部署地址，`ALLOW_HTTP_ENTRY` 默认开启；正式上架构建应使用生产 HTTPS 地址并关闭 HTTP 入口。
 - Android 包名和 iOS Bundle Identifier 使用正式且唯一的组织前缀；发布前不得再随意变更。
 - 仅把公开的网页入口地址、渠道标识等放入客户端配置。不得写入 API 密钥、VOD AK/SK、回调密钥、STS 或播放鉴权参数。
 - 最低系统版本、签名、证书、供应商账号信息不提交到仓库，使用 CI 密钥管理或本机安全存储注入。
@@ -89,7 +92,7 @@ flutter-app/
 
 1. 创建 Flutter 工程，引入 WebView、网络状态和外部链接所需依赖。
 2. 实现启动页、WebView 初始化、进度提示、错误页面和手动重试。
-3. 配置 Android `INTERNET` 权限、iOS App Transport Security，仅允许 HTTPS 生产地址。
+3. 配置 Android `INTERNET` 和本地明文访问权限、iOS WebView 本地 HTTP 例外；Dart 配置在发布构建中仅允许 HTTPS 生产地址。
 4. 实现 Android 返回键与 WebView 历史的协调逻辑。
 5. 限制域内网页导航；非受信任跳转拒绝，受支持外链交给系统浏览器。
 6. 在 Android Debug 和 iOS Simulator 完成基础安装、加载和导航验证。
@@ -163,9 +166,15 @@ flutter run
 
 ```bash
 cd flutter-app
-flutter build appbundle --release
-flutter build apk --release
-flutter build ipa --release
+flutter build appbundle --release \
+  --dart-define=WEB_ENTRY_URL=https://<web-domain>/ \
+  --dart-define=ALLOW_HTTP_ENTRY=false
+flutter build apk --release \
+  --dart-define=WEB_ENTRY_URL=https://<web-domain>/ \
+  --dart-define=ALLOW_HTTP_ENTRY=false
+flutter build ipa --release \
+  --dart-define=WEB_ENTRY_URL=https://<web-domain>/ \
+  --dart-define=ALLOW_HTTP_ENTRY=false
 ```
 
 `flutter build ipa` 必须在 macOS 且已配置 Apple 签名的环境执行。交付物包括 Android AAB/APK、iOS IPA/TestFlight 构建、对应版本号、变更说明、测试记录和已知限制。

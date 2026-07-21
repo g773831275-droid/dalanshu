@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import 'app_config.dart';
 
@@ -40,7 +42,11 @@ class WebShell extends StatefulWidget {
 
 class _WebShellState extends State<WebShell> {
   late final WebViewController _controller;
+  late final WebViewWidget _webView;
   int _progress = 0;
+  bool _showLoadingOverlay = true;
+  bool _hasFinishedMainFrame = false;
+  Uri? _mainFrameUri;
   String? _errorMessage;
 
   @override
@@ -56,26 +62,91 @@ class _WebShellState extends State<WebShell> {
                 setState(() => _progress = progress);
               }
             },
+            onPageStarted: (url) {
+              final uri = Uri.tryParse(url);
+              if (uri != null) {
+                _mainFrameUri = uri;
+              }
+              if (mounted) {
+                setState(() {
+                  _progress = 0;
+                  _showLoadingOverlay = true;
+                  _hasFinishedMainFrame = false;
+                });
+              }
+            },
+            onPageFinished: (_) {
+              if (mounted) {
+                setState(() {
+                  _progress = 100;
+                  _showLoadingOverlay = false;
+                  _hasFinishedMainFrame = true;
+                });
+              }
+            },
             onNavigationRequest: _handleNavigation,
             onWebResourceError: (error) {
               if (error.isForMainFrame == true && mounted) {
-                setState(() => _errorMessage = error.description);
+                setState(() {
+                  _errorMessage = error.description;
+                  _showLoadingOverlay = false;
+                });
               }
             },
-            onHttpError: (error) {
-              if (error.request?.uri == widget.config.entryUri && mounted) {
-                final statusCode = error.response?.statusCode;
-                setState(
-                  () => _errorMessage = statusCode == null
-                      ? '服务器暂时无法响应。'
-                      : '服务器返回 HTTP $statusCode。',
-                );
-              }
-            },
+            onHttpError: _handleHttpError,
           ),
         )
         ..loadRequest(widget.config.entryUri!);
+
+      final platformController = _controller.platform;
+      if (platformController is AndroidWebViewController) {
+        AndroidWebViewController.enableDebugging(kDebugMode);
+        platformController.setMediaPlaybackRequiresUserGesture(false);
+      }
+
+      var widgetParams = PlatformWebViewWidgetCreationParams(
+        controller: platformController,
+      );
+      if (platformController is AndroidWebViewController) {
+        widgetParams =
+            AndroidWebViewWidgetCreationParams.fromPlatformWebViewWidgetCreationParams(
+              widgetParams,
+              displayWithHybridComposition: true,
+            );
+      }
+      _webView = WebViewWidget.fromPlatformCreationParams(params: widgetParams);
     }
+  }
+
+  void _handleHttpError(HttpResponseError error) {
+    if (!mounted) {
+      return;
+    }
+
+    final requestUri = error.request?.uri;
+    if (requestUri != null) {
+      if (!widget.config.isTrusted(requestUri)) {
+        return;
+      }
+      final mainFrameUri = _mainFrameUri;
+      if (mainFrameUri != null &&
+          !isSameWebDocument(requestUri, mainFrameUri)) {
+        return;
+      }
+    } else if (_hasFinishedMainFrame) {
+      // WKWebView omits the URL for subresource responses. Ignore those after
+      // the main document has rendered.
+      return;
+    }
+
+    // WKWebView does not expose the failed request URI through this callback.
+    final statusCode = error.response?.statusCode;
+    setState(() {
+      _errorMessage = statusCode == null
+          ? '服务器暂时无法响应。'
+          : '服务器返回 HTTP $statusCode。';
+      _showLoadingOverlay = false;
+    });
   }
 
   Future<NavigationDecision> _handleNavigation(
@@ -98,6 +169,8 @@ class _WebShellState extends State<WebShell> {
     setState(() {
       _errorMessage = null;
       _progress = 0;
+      _showLoadingOverlay = true;
+      _hasFinishedMainFrame = false;
     });
     await _controller.loadRequest(widget.config.entryUri!);
   }
@@ -127,11 +200,25 @@ class _WebShellState extends State<WebShell> {
         body: SafeArea(
           child: Stack(
             children: [
-              WebViewWidget(controller: _controller),
-              if (_progress < 100 && _errorMessage == null)
-                LinearProgressIndicator(value: _progress / 100),
+              Positioned.fill(child: _webView),
+              if (_showLoadingOverlay && _errorMessage == null)
+                const Positioned.fill(
+                  child: ColoredBox(
+                    color: Colors.white,
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                ),
+              if (_progress > 0 && _progress < 100 && _errorMessage == null)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: LinearProgressIndicator(value: _progress / 100),
+                ),
               if (_errorMessage != null)
-                _ErrorView(message: _errorMessage!, onRetry: _retry),
+                Positioned.fill(
+                  child: _ErrorView(message: _errorMessage!, onRetry: _retry),
+                ),
             ],
           ),
         ),

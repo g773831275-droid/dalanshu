@@ -2,6 +2,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_app/app_config.dart';
 
 void main() {
+  test('uses the deployed HTTP entry by default', () {
+    final config = WebAppConfig.fromEnvironment();
+
+    expect(config.entryUri, Uri.parse('http://118.196.139.226/'));
+    expect(config.allowHttp, isTrue);
+    expect(config.isValid, isTrue);
+  });
+
   test('accepts HTTPS navigation on the configured host', () {
     final config = WebAppConfig(Uri.parse('https://web.example.com'));
 
@@ -11,6 +19,29 @@ void main() {
       isTrue,
     );
     expect(config.isTrusted(Uri.parse('https://other.example.com')), isFalse);
+  });
+
+  test('allows HTTP entry and navigation when enabled', () {
+    final config = WebAppConfig(Uri.parse('http://127.0.0.1:5174/'));
+
+    expect(config.isValid, isTrue);
+    expect(
+      config.isTrusted(Uri.parse('http://127.0.0.1:5174/posts/1')),
+      isTrue,
+    );
+  });
+
+  test('rejects HTTP entry and navigation when disabled', () {
+    final config = WebAppConfig(
+      Uri.parse('http://127.0.0.1:5174/'),
+      allowHttp: false,
+    );
+
+    expect(config.isValid, isFalse);
+    expect(
+      config.isTrusted(Uri.parse('http://127.0.0.1:5174/posts/1')),
+      isFalse,
+    );
   });
 
   test('allows only supported system link schemes', () {
@@ -23,6 +54,23 @@ void main() {
     );
     expect(
       config.isSystemLink(Uri.parse('https://other.example.com')),
+      isFalse,
+    );
+  });
+
+  test('normalizes the root path when comparing web documents', () {
+    expect(
+      isSameWebDocument(
+        Uri.parse('https://web.example.com'),
+        Uri.parse('https://web.example.com/#feed'),
+      ),
+      isTrue,
+    );
+    expect(
+      isSameWebDocument(
+        Uri.parse('https://web.example.com/?page=1'),
+        Uri.parse('https://web.example.com/?page=2'),
+      ),
       isFalse,
     );
   });
