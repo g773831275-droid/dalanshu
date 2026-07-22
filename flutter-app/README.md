@@ -1,49 +1,51 @@
-# DalanBook Flutter App
+# 大蓝书 Flutter App
 
-Flutter WebView container for the existing `dalanbook-frontend` site. The app
-loads a configurable HTTP or HTTPS site URL and must not contain API keys,
-tokens, STS credentials, or media playback credentials.
+基于 `docs/移动端/prototype.html` 实现的原生 Flutter 可点击原型。当前版本使用本地 Mock 数据和本地图片资产，不接入真实 API、短信、OSS、VOD 或 Firebase。
 
-## Run
+## 工程信息
 
-The project package name is `flutter_app`; the repository directory retains the
-planned `flutter-app` name. Run it from this directory:
+- Dart package：`dalanbook_app`
+- Android applicationId：`com.dalanshu.app`
+- iOS Bundle Identifier：`com.dalanshu.app`
+- 平台：Android、iOS
+- Android 最低版本：7.0（API 24）
+- 当前版本：`1.0.1 (2)`
+
+代码按功能组织：
+
+```text
+lib/
+  app/                    应用入口、主导航和登录守卫
+  core/
+    design_system/        颜色、字排和通用组件
+    mock/                 Mock 模型、数据和交互状态
+  features/
+    auth/                 欢迎与手机号登录
+    discover/             发现与搜索
+    islands/              岛屿列表与详情
+    post/                 帖子详情与互动
+    publish/              图文/视频选择与发布原型
+    notifications/        通知
+    profile/              我的与设置
+```
+
+## 运行与验证
+
+在 `flutter-app` 目录执行：
 
 ```bash
 flutter pub get
-```
-
-The default entry is `http://118.196.139.226/`, and HTTP entries are enabled by
-default. Run the app without additional entry configuration:
-
-```bash
-cd flutter-app
 flutter run
 ```
 
-To use the local frontend instead, start `dalanbook-frontend`, map its port to
-an Android device, and override the entry URL:
+静态检查、测试和 Android debug 包构建：
 
 ```bash
-adb reverse tcp:5174 tcp:5174
-flutter run --dart-define=WEB_ENTRY_URL=http://127.0.0.1:5174/
+flutter analyze
+flutter test
+flutter build apk --debug
 ```
 
-`WEB_ENTRY_URL` controls the web entry and `ALLOW_HTTP_ENTRY` controls whether
-HTTP URLs are accepted. The current deployment uses HTTP; for store or public
-release builds, provide the production HTTPS URL and disable HTTP:
+游客可浏览发现、搜索、岛屿和帖子详情。发布、通知、我的以及加入、点赞、收藏、关注和评论会触发登录，登录完成后恢复目标页面或动作。
 
-```bash
-flutter build apk --release \
-  --dart-define=WEB_ENTRY_URL=https://web.example.com/ \
-  --dart-define=ALLOW_HTTP_ENTRY=false
-```
-
-The container only keeps HTTP/HTTPS navigation within the configured host;
-telephone, email, and map links open through the operating system.
-
-The generated implementation should follow
-`docs/移动端/Flutter开发计划.md`: use `webview_flutter` to load the production
-same-origin site, and configure the entry URL, application identifiers, name,
-icon, and launch screen through build configuration rather than committed
-secrets.
+发布页已支持从系统相册选择最多 9 张图片、选择视频、预览和移除。当前发布提交仍使用 Mock 反馈，不会把媒体上传到服务端。
