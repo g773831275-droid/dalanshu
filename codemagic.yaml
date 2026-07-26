@@ -21,6 +21,9 @@ workflows:
     name: 大蓝岛 iOS 上架
     instance_type: mac_mini_m2
     max_build_duration: 60
+    # 引用 Codemagic UI 里配的 Developer Portal integration(名称: 大蓝海)
+    integrations:
+      app_store_connect: 大蓝海
 
     # ---------------- 触发条件 ----------------
     # push 到 develop 分支自动触发；也支持手动触发
@@ -126,10 +129,9 @@ workflows:
           failure: true
 
       # App Store Connect 上架
+      # 用 UI 配置的 Developer Portal integration(大蓝海)认证, 无需环境变量组
       app_store_connect:
-        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
-        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
-        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        auth: integration
 
         # 提交到 TestFlight（测试通过后再正式提交审核）
         submit_to_testflight: true
