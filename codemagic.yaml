@@ -1,8 +1,8 @@
 # ============================================================================
-# Codemagic CI/CD 配置 —— 大蓝书 (dalanbook_app) iOS 上架
+# Codemagic CI/CD 配置 —— 大蓝岛 (dalanbook_app) iOS 上架
 # ----------------------------------------------------------------------------
 # 项目: dalanshu (develop 分支)
-# App : 大蓝书
+# App : 大蓝岛
 # Bundle ID: com.kaitengguan.dalandao
 # Team ID: 5QLTMB4JGC
 # Flutter 工程位于子目录 flutter-app/
@@ -18,7 +18,7 @@
 
 workflows:
   ios-release:
-    name: 大蓝书 iOS 上架
+    name: 大蓝岛 iOS 上架
     instance_type: mac_mini_m2
     max_build_duration: 60
 
@@ -83,6 +83,9 @@ workflows:
         working_directory: flutter-app
         script: |
           set -e
+          # 禁用 Swift Package Manager(项目无 xcworkspace, SPM 会报 "Xcode workspace not found")
+          # 注意: Flutter 未来版本会强制 SPM,届时需改用 pod install 生成 workspace
+          flutter config --no-enable-swift-package-manager
           # build_number 用 git 提交计数,保证每次上传递增(不依赖平台变量)
           # build_name 对齐 pubspec 的 1.0.1
           BUILD_NUMBER=$(git rev-list --count HEAD)
