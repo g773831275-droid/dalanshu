@@ -141,8 +141,8 @@ workflows:
         submit_to_app_store: false
 
         # 审核通过后自动发布到 App Store（MANUAL / AFTER_APPROVAL / SCHEDULED）
-        # 证书和 provisioning profile 由 Codemagic 用上面的 API Key 自动管理,无需手动配 .p12
-        release_type: AFTER_APPROVAL
+        # ⚠️ release_type 仅在 submit_to_app_store: true 时有效; 当前 false 故注释, 改回 true 时一并启用
+        # release_type: AFTER_APPROVAL
 
 # ============================================================================
 # 备注
