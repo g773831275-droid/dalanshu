@@ -95,7 +95,10 @@ workflows:
         script: |
           set -e
           # 把 ios_signing fetch 到的 provisioning profile 应用到 Xcode 项目
-          xcode-project use-profiles
+          # testFlightInternalTestingOnly: 标记为内部测试, 无需 Beta 审核信息, 仅团队成员可测
+          # ⚠️ 内部测试 build 不能上架 App Store; 上架前去掉此参数并改回外部测试
+          xcode-project use-profiles \
+            --custom-export-options='{"testFlightInternalTestingOnly": true}'
 
       - name: 构建 IPA (release)
         working_directory: flutter-app
