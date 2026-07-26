@@ -43,6 +43,11 @@ workflows:
         - appstore_credentials
       # appstore_credentials 组里的变量直接可用,无需在此重复声明:
       #   APP_STORE_CONNECT_ISSUER_ID / KEY_IDENTIFIER / PRIVATE_KEY
+      # iOS 自动签名: Codemagic 用 App Store Connect API Key 自动管理证书+profile
+      # 前提: Codemagic 后台 Team integrations 配 API key + Code signing identities 生成证书+fetch profile
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.kaitengguan.dalandao
 
     # ---------------- 缓存 ----------------
     cache:
@@ -78,6 +83,13 @@ workflows:
         script: |
           set -e
           flutter analyze || echo "⚠️ analyze 有警告，但继续构建"
+
+      - name: 应用签名配置到 Xcode 项目
+        working_directory: flutter-app
+        script: |
+          set -e
+          # 把 ios_signing fetch 到的 provisioning profile 应用到 Xcode 项目
+          xcode-project use-profiles
 
       - name: 构建 IPA (release)
         working_directory: flutter-app
