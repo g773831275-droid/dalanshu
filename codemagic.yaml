@@ -137,8 +137,8 @@ workflows:
         submit_to_testflight: true
 
         # 同时提交到 App Store 审核
-        # ⚠️ 首次发布前请先在 App Store Connect 后台填好 App 信息（截图、描述、隐私政策等）
-        submit_to_app_store: true
+        # ⚠️ 暂时关闭: App Store 上架信息(截图/描述/隐私政策/分类/年龄分级)未准备好, 准备好后改回 true
+        submit_to_app_store: false
 
         # 审核通过后自动发布到 App Store（MANUAL / AFTER_APPROVAL / SCHEDULED）
         # 证书和 provisioning profile 由 Codemagic 用上面的 API Key 自动管理,无需手动配 .p12
