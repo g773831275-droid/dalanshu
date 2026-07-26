@@ -43,11 +43,14 @@ workflows:
         - appstore_credentials
       # appstore_credentials 组里的变量直接可用,无需在此重复声明:
       #   APP_STORE_CONNECT_ISSUER_ID / KEY_IDENTIFIER / PRIVATE_KEY
-      # iOS 自动签名: Codemagic 用 App Store Connect API Key 自动管理证书+profile
-      # 前提: Codemagic 后台 Team integrations 配 API key + Code signing identities 生成证书+fetch profile
+      # iOS 自动签名: 按 Reference name 引用 Codemagic 后台 Code signing identities 已上传的文件
+      # (证书 p12 + 描述文件 profile 的 Reference name 都叫 dalandao)
+      # 注意: 用 reference names 就不能再用 distribution_type + bundle_identifier (文档明确互斥)
       ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.kaitengguan.dalandao
+        provisioning_profiles:
+          - dalandao
+        certificates:
+          - dalandao
 
     # ---------------- 缓存 ----------------
     cache:
