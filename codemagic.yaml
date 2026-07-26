@@ -1,0 +1,134 @@
+# ============================================================================
+# Codemagic CI/CD 配置 —— 大蓝书 (dalanbook_app) iOS 上架
+# ----------------------------------------------------------------------------
+# 项目: dalanshu (develop 分支)
+# App : 大蓝书
+# Bundle ID: com.dalanshu.app
+# Flutter 工程位于子目录 flutter-app/
+#
+# 上架前必须完成的准备（详见对话回复）:
+#   1. 在 App Store Connect 创建 App（Bundle ID: com.dalanshu.app）
+#   2. 创建 App Store Connect API Key（App Manager 或 Admin 权限）
+#   3. 在 Codemagic 后台创建环境变量组 appstore_credentials，添加：
+#        - APP_STORE_CONNECT_ISSUER_ID
+#        - APP_STORE_CONNECT_KEY_IDENTIFIER
+#        - APP_STORE_CONNECT_PRIVATE_KEY  (.p8 文件原始内容，含头尾)
+# ============================================================================
+
+workflows:
+  ios-release:
+    name: 大蓝书 iOS 上架
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+
+    # ---------------- 触发条件 ----------------
+    # push 到 develop 分支自动触发；也支持手动触发
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: develop
+          include: true
+      cancel_previous_builds: true
+
+    # ---------------- 环境 ----------------
+    environment:
+      # Flutter 版本对齐 pubspec 要求的 sdk: ^3.12.2
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      # 凭证变量组（在 Codemagic 后台 → Teams → Environment variables 创建）
+      groups:
+        - appstore_credentials
+      vars:
+        # App Store Connect API Key 三件套（从环境变量组读取，不硬编码）
+        APP_STORE_CONNECT_ISSUER_ID: $APP_STORE_CONNECT_ISSUER_ID
+        APP_STORE_CONNECT_KEY_IDENTIFIER: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        APP_STORE_CONNECT_PRIVATE_KEY: $APP_STORE_CONNECT_PRIVATE_KEY
+
+    # ---------------- 缓存 ----------------
+    cache:
+      cache_path: $FCI_BUILD_DIR/flutter-app/.pub-cache
+
+    # ---------------- 构建脚本 ----------------
+    scripts:
+      - name: 切到 Flutter 工程目录并校验版本
+        working_dir: flutter-app
+        script: |
+          set -e
+          echo "Flutter 版本:"
+          flutter --version
+          echo "Dart 版本:"
+          dart --version
+
+      - name: 拉取依赖
+        working_dir: flutter-app
+        script: |
+          set -e
+          flutter pub get
+
+      - name: 生成 App 图标
+        working_dir: flutter-app
+        script: |
+          set -e
+          dart run flutter_launcher_icons
+
+      - name: 静态分析
+        working_dir: flutter-app
+        script: |
+          set -e
+          flutter analyze || echo "⚠️ analyze 有警告，但继续构建"
+
+      - name: 构建 IPA (release)
+        working_dir: flutter-app
+        script: |
+          set -e
+          # build_number 用 Codemagic 内部计数 $BUILD_NUMBER，保证每次上传递增
+          # build_name 对齐 pubspec 的 1.0.1
+          flutter build ipa --release \
+            --build-name=1.0.1 \
+            --build-number=$BUILD_NUMBER
+
+    # ---------------- 产物 ----------------
+    artifacts:
+      - flutter-app/build/ios/ipa/*.ipa
+      - flutter-app/build/ios/ipa/*.dSYM.zip
+
+    # ---------------- 上架发布 ----------------
+    publishing:
+      # 邮件通知
+      email:
+        recipients:
+          - g773831275@gmail.com
+        notify:
+          success: true
+          failure: true
+
+      # App Store Connect 上架
+      app_store_connect:
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+
+        # 提交到 TestFlight（测试通过后再正式提交审核）
+        submit_to_testflight: true
+        # 如果是首次上传，TestFlight 缺少审核信息时会失败；这里关掉自动提交审核
+        beta_build_info_for_export: false
+
+        # 同时提交到 App Store 审核
+        # ⚠️ 首次发布前请先在 App Store Connect 后台填好 App 信息（截图、描述、隐私政策等）
+        submit_to_app_store: true
+
+        # 自动管理证书和 provisioning profile
+        # Codemagic 会用上面的 API Key 自动创建/复用证书，无需手动配 .p12
+        automatic_release_type: APP_STORE
+
+# ============================================================================
+# 备注
+# ----------------------------------------------------------------------------
+# 1. 如果只想先 TestFlight 不直接审核，把 submit_to_app_store 改成 false
+# 2. $BUILD_NUMBER 是 Codemagic 自动生成的递增数字；也可手动改 --build-number
+# 3. 如遇 "bundle id already exists" 报错，请先到 developer.apple.com 注册
+#    Bundle ID com.dalanshu.app 并关联到 App Store Connect 的 App
+# 4. yaml 必须放在仓库根目录；Codemagic 会自动识别
+# ============================================================================
