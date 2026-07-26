@@ -95,10 +95,8 @@ workflows:
         script: |
           set -e
           # 把 ios_signing fetch 到的 provisioning profile 应用到 Xcode 项目
-          # testFlightInternalTestingOnly: 标记为内部测试, 无需 Beta 审核信息, 仅团队成员可测
-          # ⚠️ 内部测试 build 不能上架 App Store; 上架前去掉此参数并改回外部测试
-          xcode-project use-profiles \
-            --custom-export-options='{"testFlightInternalTestingOnly": true}'
+          # 正常 build(不带 internal 标记), 可用于上架 App Store
+          xcode-project use-profiles
 
       - name: 构建 IPA (release)
         working_directory: flutter-app
@@ -136,16 +134,15 @@ workflows:
       app_store_connect:
         auth: integration
 
-        # 提交到 TestFlight（测试通过后再正式提交审核）
-        submit_to_testflight: true
+        # 暂不提交 TestFlight 外部测试(需填 Beta 审核信息); 本次直接上架 App Store
+        submit_to_testflight: false
 
-        # 同时提交到 App Store 审核
-        # ⚠️ 暂时关闭: App Store 上架信息(截图/描述/隐私政策/分类/年龄分级)未准备好, 准备好后改回 true
-        submit_to_app_store: false
+        # 提交到 App Store 审核
+        # ⚠️ 前提: App Store Connect 后台已填全上架信息(截图/描述/隐私政策/分类/年龄分级)
+        submit_to_app_store: true
 
         # 审核通过后自动发布到 App Store（MANUAL / AFTER_APPROVAL / SCHEDULED）
-        # ⚠️ release_type 仅在 submit_to_app_store: true 时有效; 当前 false 故注释, 改回 true 时一并启用
-        # release_type: AFTER_APPROVAL
+        release_type: AFTER_APPROVAL
 
 # ============================================================================
 # 备注
