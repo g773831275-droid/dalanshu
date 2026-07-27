@@ -26,8 +26,8 @@ public class AliyunSmsProperties {
     /** 注册验证码模板 Code（赠送模板可填 100001）。 */
     private String registerTemplateCode;
 
-    /** 模板参数 JSON，例如：{"code":"123456","min":"5"}。 */
-    private String templateParam = "{\"code\":\"123456\",\"min\":\"5\"}";
+    /** 模板参数 JSON，例如：{"code":"##code##","min":"5"}。赠送模板 code 用 ##code## 占位符，阿里云发送时替换为动态验证码。 */
+    private String templateParam = "{\"code\":\"##code##\",\"min\":\"5\"}";
 
     /** 验证码类型：1=纯数字，2=数字字母混合。 */
     private int codeType = 1;
