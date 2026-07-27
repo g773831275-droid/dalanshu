@@ -105,10 +105,13 @@ workflows:
           # 禁用 Swift Package Manager(项目无 xcworkspace, SPM 会报 "Xcode workspace not found")
           # 注意: Flutter 未来版本会强制 SPM,届时需改用 pod install 生成 workspace
           flutter config --no-enable-swift-package-manager
-          # build_number 用 git 提交计数,保证每次上传递增(不依赖平台变量)
+          # build_number = git提交数 + Codemagic构建号 + 100
+          # 保证: 同一commit多次构建也递增(CM_BUILD_NUMBER每次+1), 且大于已上传的48
           # build_name 对齐 pubspec 的 1.0.1
-          BUILD_NUMBER=$(git rev-list --count HEAD)
-          echo "本次构建 build_number: $BUILD_NUMBER"
+          GIT_COUNT=$(git rev-list --count HEAD)
+          CM_NUM=${CM_BUILD_NUMBER:-0}
+          BUILD_NUMBER=$(( GIT_COUNT + CM_NUM + 100 ))
+          echo "本次构建 build_number: $BUILD_NUMBER (git=$GIT_COUNT, cm=$CM_NUM)"
           flutter build ipa --release \
             --build-name=1.0.1 \
             --build-number=$BUILD_NUMBER \
