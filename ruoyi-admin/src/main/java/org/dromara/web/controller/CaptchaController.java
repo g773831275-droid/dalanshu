@@ -7,6 +7,7 @@ import cn.hutool.captcha.generator.RandomGenerator;
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.RandomUtil;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.dromara.common.core.constant.Constants;
@@ -22,7 +23,7 @@ import org.dromara.common.mail.utils.MailUtils;
 import org.dromara.common.ratelimiter.annotation.RateLimiter;
 import org.dromara.common.ratelimiter.enums.LimitType;
 import org.dromara.common.redis.utils.RedisUtils;
-import org.dromara.common.sms.service.VolcSmsSender;
+import org.dromara.common.sms.service.SmsSender;
 import org.dromara.common.web.core.WaveAndCircleCaptcha;
 import org.dromara.common.web.config.properties.CaptchaProperties;
 import org.dromara.web.domain.vo.CaptchaVo;
@@ -52,7 +53,7 @@ public class CaptchaController {
 
     private final CaptchaProperties captchaProperties;
     private final MailProperties mailProperties;
-    private final VolcSmsSender volcSmsSender;
+    private final SmsSender smsSender;
 
     /**
      * 短信验证码
@@ -61,11 +62,11 @@ public class CaptchaController {
      */
     @RateLimiter(key = "#phonenumber", time = 60, count = 1)
     @GetMapping({"/resource/sms/code", "/api/v1/auth/sms/code"})
-    public R<Void> smsCode(@NotBlank(message = "{user.phonenumber.not.blank}") String phonenumber) {
-        String code = RandomUtil.randomNumbers(6);
-        volcSmsSender.sendRegisterCode(phonenumber, code);
-        String key = GlobalConstants.CAPTCHA_CODE_KEY + phonenumber;
-        RedisUtils.setCacheObject(key, code, volcSmsSender.codeExpiration());
+    public R<Void> smsCode(
+        @NotBlank(message = "{user.phonenumber.not.blank}")
+        @Pattern(regexp = "^1[3-9]\\d{9}$", message = "手机号格式不正确") String phonenumber
+    ) {
+        smsSender.sendRegisterCode(phonenumber);
         return R.ok();
     }
 

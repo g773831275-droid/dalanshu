@@ -20,6 +20,7 @@ import org.dromara.common.core.utils.SpringUtils;
 import org.dromara.common.core.utils.StringUtils;
 import org.dromara.common.log.event.LogininforEvent;
 import org.dromara.common.redis.utils.RedisUtils;
+import org.dromara.common.sms.service.SmsSender;
 import org.dromara.common.tenant.helper.TenantHelper;
 import org.dromara.system.domain.SysUser;
 import org.dromara.system.domain.bo.SysUserBo;
@@ -40,6 +41,7 @@ public class SysRegisterService {
 
     private final ISysUserService userService;
     private final SysUserMapper userMapper;
+    private final SmsSender smsSender;
 
     @Value("${dalanbook.auth.default-user-dept-id:108}")
     private Long defaultUserDeptId;
@@ -49,17 +51,17 @@ public class SysRegisterService {
      */
     public String register(RegisterBody registerBody) {
         String tenantId = registerBody.getTenantId();
-        String email = registerBody.getEmail().trim().toLowerCase();
+        String phonenumber = registerBody.getPhonenumber().trim();
         String username = "u_" + IdUtil.getSnowflakeNextIdStr();
         String password = registerBody.getPassword();
-        if (!isEmailAvailable(email, tenantId)) {
-            throw new ServiceException("该邮箱已被注册");
+        if (!isPhoneAvailable(phonenumber, tenantId)) {
+            throw new ServiceException("该手机号已被注册");
         }
-        validateEmailCode(email, "register", registerBody.getEmailCode());
+        validateSmsCode(phonenumber, registerBody.getSmsCode());
         SysUserBo sysUser = new SysUserBo();
         sysUser.setUserName(username);
-        sysUser.setNickName(StringUtils.substringBefore(email, "@"));
-        sysUser.setEmail(email);
+        sysUser.setNickName("蓝书用户" + phonenumber.substring(phonenumber.length() - 4));
+        sysUser.setPhonenumber(phonenumber);
         sysUser.setPassword(BCrypt.hashpw(password));
         sysUser.setUserType(UserType.SYS_USER.getUserType());
         sysUser.setDeptId(defaultUserDeptId);
@@ -76,6 +78,20 @@ public class SysRegisterService {
         String normalizedEmail = email.trim().toLowerCase();
         return TenantHelper.dynamic(tenantId, () -> !userMapper.exists(
             new LambdaQueryWrapper<SysUser>().eq(SysUser::getEmail, normalizedEmail)));
+    }
+
+    private boolean isPhoneAvailable(String phonenumber, String tenantId) {
+        return TenantHelper.dynamic(tenantId, () -> !userMapper.exists(
+            new LambdaQueryWrapper<SysUser>().eq(SysUser::getPhonenumber, phonenumber)));
+    }
+
+    private void validateSmsCode(String phonenumber, String submittedCode) {
+        if (StringUtils.isBlank(submittedCode)) {
+            throw new CaptchaException();
+        }
+        if (!smsSender.checkRegisterCode(phonenumber, submittedCode)) {
+            throw new CaptchaException();
+        }
     }
 
     public void recoverPassword(RecoverPasswordBody body, String tenantId) {

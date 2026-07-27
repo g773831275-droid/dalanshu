@@ -20,6 +20,7 @@ import org.dromara.common.core.utils.ValidatorUtils;
 import org.dromara.common.json.utils.JsonUtils;
 import org.dromara.common.redis.utils.RedisUtils;
 import org.dromara.common.satoken.utils.LoginHelper;
+import org.dromara.common.sms.service.SmsSender;
 import org.dromara.common.tenant.helper.TenantHelper;
 import org.dromara.system.domain.SysUser;
 import org.dromara.system.domain.vo.SysClientVo;
@@ -42,6 +43,7 @@ public class SmsAuthStrategy implements IAuthStrategy {
 
     private final SysLoginService loginService;
     private final SysUserMapper userMapper;
+    private final SmsSender smsSender;
 
     @Override
     public LoginVo login(String body, SysClientVo client) {
@@ -79,12 +81,11 @@ public class SmsAuthStrategy implements IAuthStrategy {
      * 校验短信验证码
      */
     private boolean validateSmsCode(String tenantId, String phonenumber, String smsCode) {
-        String code = RedisUtils.getCacheObject(GlobalConstants.CAPTCHA_CODE_KEY + phonenumber);
-        if (StringUtils.isBlank(code)) {
-            loginService.recordLogininfor(tenantId, phonenumber, Constants.LOGIN_FAIL, MessageUtils.message("user.jcaptcha.expire"));
-            throw new CaptchaExpireException();
+        if (StringUtils.isBlank(smsCode) || !smsSender.checkRegisterCode(phonenumber, smsCode)) {
+            loginService.recordLogininfor(tenantId, phonenumber, Constants.LOGIN_FAIL, MessageUtils.message("user.jcaptcha.error"));
+            return false;
         }
-        return code.equals(smsCode);
+        return true;
     }
 
     private SysUserVo loadUserByPhonenumber(String phonenumber) {
