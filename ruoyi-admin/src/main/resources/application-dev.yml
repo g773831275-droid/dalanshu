@@ -99,13 +99,14 @@ spring:
 spring.data:
   redis:
     # 地址
-    host: localhost
+#    host: localhost
+    host: 172.18.121.233
     # 端口，默认为6379
     port: 6379
     # 数据库索引
     database: 10
     # redis 密码必须配置
-    password: ${DALANSHU_REDIS_PASSWORD}
+#    password: ${DALANSHU_REDIS_PASSWORD}
     # 连接超时时间
     timeout: 10s
     # 是否开启ssl
@@ -198,14 +199,35 @@ sms:
       signature: 您的短信签名
       sdk-app-id: 您的sdkAppId
 
---- # 火山引擎短信。AK/SK 仅通过环境变量注入，禁止写入配置文件。
+--- # 短信服务总开关与厂商选择。aliyun=阿里云号码认证（dypnsapi），volc=火山引擎短信（dysmsapi 兼容）。
+dalanshu:
+  sms:
+    provider: ${DALANSHU_SMS_PROVIDER:aliyun}
+
+--- # 阿里云号码认证服务（Dypnsapi）。AK/SK 仅通过环境变量注入，禁止写入配置文件。
+aliyun-sms:
+  enabled: ${DALANSHU_ALIYUN_SMS_ENABLED:true}
+  access-key-id: ${DALANSHU_ALIYUN_SMS_ACCESS_KEY_ID:}
+  access-key-secret: ${DALANSHU_ALIYUN_SMS_ACCESS_KEY_SECRET:}
+  # SendSmsVerifyCode 的 SignName，填写审核通过的签名文字，例如“恒创联众”。
+  sign: ${DALANSHU_ALIYUN_SMS_SIGN:}
+  # SendSmsVerifyCode 的 TemplateCode，赠送模板可填 100001。
+  register-template-code: ${DALANSHU_ALIYUN_SMS_REGISTER_TEMPLATE_CODE:}
+  template-param: ${DALANSHU_ALIYUN_SMS_TEMPLATE_PARAM:{"code":"123456","min":"5"}}
+  code-type: ${DALANSHU_ALIYUN_SMS_CODE_TYPE:1}
+  code-length: ${DALANSHU_ALIYUN_SMS_CODE_LENGTH:6}
+  valid-time: ${DALANSHU_ALIYUN_SMS_VALID_TIME:300}
+  interval: ${DALANSHU_ALIYUN_SMS_INTERVAL:60}
+  daily-max: ${DALANSHU_ALIYUN_SMS_DAILY_MAX:30}
+  return-verify-code: ${DALANSHU_ALIYUN_SMS_RETURN_VERIFY_CODE:false}
+  region: ${DALANSHU_ALIYUN_SMS_REGION:cn-hangzhou}
+
+--- # 火山引擎短信服务。AK/SK 仅通过环境变量注入，禁止写入配置文件。仅在 dalanshu.sms.provider=volc 时生效。
 volc-sms:
   enabled: ${DALANSHU_VOLC_SMS_ENABLED:true}
   access-key: ${DALANSHU_VOLC_SMS_ACCESS_KEY:}
   secret-key: ${DALANSHU_VOLC_SMS_SECRET_KEY:}
-  # 短信服务“子账户管理”列表中的 subAccountId，不是 S1T_ 开头的签名 ID。
   sms-account: ${DALANSHU_VOLC_SMS_ACCOUNT:}
-  # SendSms 的 Sign 参数填写审核通过的签名文字，例如“大蓝书”，不是 S1T_ 开头的签名资源 ID。
   sign: ${DALANSHU_VOLC_SMS_SIGN:}
   register-template-id: ${DALANSHU_VOLC_SMS_REGISTER_TEMPLATE_ID:}
   code-expire-minutes: ${DALANSHU_VOLC_SMS_CODE_EXPIRE_MINUTES:5}

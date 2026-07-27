@@ -1,5 +1,7 @@
 package org.dromara.common.sms.service;
 
+import cn.hutool.core.util.IdUtil;
+import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
 import com.volcengine.model.request.SmsSendRequest;
 import com.volcengine.model.response.SmsSendResponse;
@@ -17,10 +19,10 @@ import java.time.Duration;
 import java.util.Map;
 
 /**
- * 通过火山引擎 SendSms 接口发送验证码。
+ * 通过火山引擎 SendSms 接口发送验证码。验证码由本地生成并缓存到 Redis。
  */
 @Slf4j
-public class VolcSmsSender {
+public class VolcSmsSender implements SmsSender {
 
     private final VolcSmsProperties properties;
 
@@ -28,10 +30,12 @@ public class VolcSmsSender {
         this.properties = properties;
     }
 
-    public void sendRegisterCode(String phoneNumber, String code) {
+    @Override
+    public void sendRegisterCode(String phoneNumber) {
         validateConfiguration();
         checkDailyLimit(phoneNumber);
 
+        String code = RandomUtil.randomNumbers(6);
         SmsSendRequest request = new SmsSendRequest();
         request.setSmsAccount(properties.getSmsAccount());
         request.setSign(properties.getSign());
@@ -45,6 +49,8 @@ public class VolcSmsSender {
                 || response.getResponseMetadata().getError() != null) {
                 throw new IllegalStateException("火山引擎短信服务未返回有效受理结果");
             }
+            String key = GlobalConstants.CAPTCHA_CODE_KEY + phoneNumber;
+            RedisUtils.setCacheObject(key, code, codeExpiration());
             log.info("火山引擎注册验证码已受理, phone={}, requestId={}, messageIds={}",
                 maskPhone(phoneNumber),
                 response.getResponseMetadata().getRequestId(),
@@ -55,6 +61,21 @@ public class VolcSmsSender {
         }
     }
 
+    @Override
+    public boolean checkRegisterCode(String phoneNumber, String verifyCode) {
+        String key = GlobalConstants.CAPTCHA_CODE_KEY + phoneNumber;
+        String cachedCode = RedisUtils.getCacheObject(key);
+        if (StrUtil.isBlank(cachedCode)) {
+            return false;
+        }
+        boolean ok = StrUtil.equals(cachedCode, verifyCode);
+        if (ok) {
+            RedisUtils.deleteObject(key);
+        }
+        return ok;
+    }
+
+    @Override
     public Duration codeExpiration() {
         return Duration.ofMinutes(properties.getCodeExpireMinutes());
     }

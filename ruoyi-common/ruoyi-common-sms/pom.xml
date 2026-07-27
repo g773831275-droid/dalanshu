@@ -17,6 +17,12 @@
 
     <dependencies>
 
+        <!-- 阿里云号码认证服务 SDK（SendSmsVerifyCode / CheckSmsVerifyCode） -->
+        <dependency>
+            <groupId>com.aliyun</groupId>
+            <artifactId>dypnsapi20170525</artifactId>
+        </dependency>
+
         <!-- 火山引擎短信 SDK -->
         <dependency>
             <groupId>com.volcengine</groupId>

@@ -1,9 +1,9 @@
 package org.dromara.common.core.domain.model;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
-import jakarta.validation.constraints.Email;
 import org.hibernate.validator.constraints.Length;
 
 /**
@@ -15,12 +15,13 @@ import org.hibernate.validator.constraints.Length;
 @EqualsAndHashCode(callSuper = true)
 public class RegisterBody extends LoginBody {
 
-    @NotBlank(message = "{user.email.not.blank}")
-    @Email(message = "{user.email.not.valid}")
-    private String email;
+    @NotBlank(message = "{user.phonenumber.not.blank}")
+    @Pattern(regexp = "^1[3-9]\\d{9}$", message = "手机号格式不正确")
+    private String phonenumber;
 
-    @NotBlank(message = "{email.code.not.blank}")
-    private String emailCode;
+    @NotBlank(message = "{sms.code.not.blank}")
+    @Pattern(regexp = "^\\d{6}$", message = "短信验证码必须为6位数字")
+    private String smsCode;
 
     /**
      * 用户密码
