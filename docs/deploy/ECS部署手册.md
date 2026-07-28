@@ -142,7 +142,7 @@ mvn -pl ruoyi-admin -am clean verify -Pprod -DskipTests=false
 cd dalanbook-frontend
 npm ci
 npm run lint
-npm run build
+NITRO_PRESET=node-server npm run build
 cd ..
 
 # 管理端：Nginx 路由使用 /admin-api，覆盖默认的 /prod-api
@@ -299,3 +299,176 @@ ss -ltnp
 - 每月更新基础镜像并在预发环境验证，避免直接以浮动标签升级。
 - 定期检查 `docker compose ps`、磁盘容量、日志、失败重启次数和登录审计。
 - 生产环境应限制 Actuator、监控页和 SSH 的访问来源，轮换已暴露或长期未轮换的凭据。
+
+## 11. 内网 Tailscale 测试部署
+
+本节记录 `172.18.121.233` 上的实际测试环境。该环境不是前文的 Docker Compose 拓扑：Java 后端和 Node 用户端由 systemd 直接运行，宝塔 Nginx 仅监听回环地址 `127.0.0.1:18088`，Tailscale Funnel 在 `443` 终止 TLS 后转发到该端口。大蓝岛不监听或占用 `80` 端口。
+
+### 11.1 端口、目录和服务
+
+| 组件 | 实际位置或监听 | 管理方式 |
+| --- | --- | --- |
+| 发布根目录 | `/opt/dalanshu-test/` | `current` 链接到 `/opt/dalanshu-test/releases/<version>` |
+| Java 后端 | `127.0.0.1:8080` | `dalan­shu-test-backend.service`（文件名实际为 `dalanshu-test-backend.service`） |
+| React/TanStack 用户端 | `127.0.0.1:3000` | `dalan­shu-test-web.service`（文件名实际为 `dalanshu-test-web.service`） |
+| Vue 管理端 | `/opt/dalanshu-test/current/admin/dist/` | Nginx 静态文件 |
+| Nginx 测试入口 | `127.0.0.1:18088` | `/www/server/nginx/sbin/nginx` |
+| 既有独立程序 | `0.0.0.0:56013` | 不属于大蓝岛，部署和回滚时禁止停止或改动 |
+| Redis | `6379`，`redis-server.service` | 配置 `/etc/redis/redis.conf` |
+| MySQL | `3306`，`mysql.service`/`mysqld.service` | 配置 `/etc/my.cnf`，数据目录 `/www/server/data/` |
+
+后端 systemd 单元位于 `/etc/systemd/system/dalanshu-test-backend.service`，用户端单元位于 `/etc/systemd/system/dalanshu-test-web.service`。后端私密环境文件为 `/opt/dalanshu-test/shared/backend.env`，权限必须保持 `0600`，排查时只确认文件存在和变量名，不要输出变量值。
+
+测试机当前 Redis 和 MySQL 监听所有地址，但它们不应通过 Nginx 或 Funnel 暴露。应由主机防火墙和内网访问控制限制来源；调整监听地址前要先核对现有调用方，不能在应用发布过程中顺带修改。
+
+### 11.2 Nginx 与 Tailscale
+
+实际 Nginx 虚拟主机配置为：
+
+```text
+/www/server/panel/vhost/nginx/dalanshu-test.conf
+```
+
+Tailscale 服务单元为 `/usr/lib/systemd/system/tailscaled.service`，运行状态保存在 `/var/lib/tailscale/tailscaled.state`。该状态文件只能由 tailscaled 管理，禁止手工编辑或输出内容。当前 Funnel 映射使用以下命令核对：
+
+```bash
+tailscale funnel status
+```
+
+预期映射为 `https://wxf-ubutu.tail8ebb72.ts.net/` 到 `http://127.0.0.1:18088`。增加或发布应用路径不需要修改 Funnel。
+
+当前路由表如下：
+
+| 外部路径 | 处理方式 | 上游实际路径 |
+| --- | --- | --- |
+| `/dalanshu` | `301` | `/dalanshu/` |
+| `/dalanshu/` | 反向代理到用户端 | 保留 `/dalanshu/`，转到 `127.0.0.1:3000` |
+| `/dalanshu/assets/` | 用户端静态资源代理 | 去掉 `/dalanshu` 后转到 `127.0.0.1:3000/assets/` |
+| `/dalanshu/api/` | 反向代理到后端 | 转为 `127.0.0.1:8080/api/`，保留后端 `/api` 前缀 |
+| `/dalanshu/admin` | `301` | `/dalanshu/admin/` |
+| `/dalanshu/admin/` | 管理端静态 SPA | `/opt/dalanshu-test/current/admin/dist/` |
+| `/dalanshu/admin-api/` | 反向代理到后端 | 转为 `127.0.0.1:8080/`，去掉外部管理 API 前缀 |
+| `/api/` | 兼容路由 | `127.0.0.1:8080`，保留 `/api` 前缀 |
+| `/` | 兼容路由 | `127.0.0.1:3000` |
+
+用户端必须使用 Node preset 和 `/dalanshu/` Vite base 构建。TanStack Start 会据此生成 Router basepath 和 `/dalanshu/assets/` 资源 URL；默认构建会生成 Cloudflare worker，不能由当前 systemd 单元运行：
+
+```bash
+cd dalanbook-frontend
+npm ci
+NITRO_PRESET=node-server npm run build -- --base=/dalanshu/
+```
+
+Node 产物内部仍从 `/assets/` 提供静态文件，所以 Nginx 必须单独去掉资源路径的 `/dalanshu` 前缀，但用户页面代理必须保留该前缀。两条规则的 `proxy_pass` 末尾斜杠不可互换：
+
+```nginx
+location /dalanshu/assets/ {
+    proxy_pass http://127.0.0.1:3000/assets/;
+}
+
+location /dalanshu/ {
+    proxy_pass http://127.0.0.1:3000;
+}
+```
+
+当前浏览器 API 调用和少量普通锚点仍使用根路径，因此 `/api/` 与 `/` 暂时保留为兼容路由；TanStack Router 生成的页面导航已经限定在 `/dalanshu/`。删除兼容路由前必须先改造并回归这些根路径调用。
+
+管理端必须按对外路径构建，不修改 `plus-ui/.env.production`：
+
+```bash
+cd plus-ui
+npm ci
+VITE_APP_CONTEXT_PATH=/dalanshu/admin/ \
+VITE_APP_BASE_API=/dalanshu/admin-api/ \
+npm run build:prod
+```
+
+上传后统一静态文件权限，避免 rsync 保留构建机的限制性 umask：
+
+```bash
+find /opt/dalanshu-test/current/admin/dist -type d -exec chmod 0755 {} +
+find /opt/dalanshu-test/current/admin/dist -type f -exec chmod 0644 {} +
+```
+
+管理 API 的 `proxy_pass` 必须带末尾斜杠：
+
+```nginx
+location /dalanshu/admin-api/ {
+    proxy_pass http://127.0.0.1:8080/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+}
+
+location /dalanshu/admin/ {
+    alias /opt/dalanshu-test/current/admin/dist/;
+    try_files $uri $uri/ /dalanshu/admin/index.html;
+}
+```
+
+### 11.3 增加路径服务的模板
+
+新服务继续复用 `18088`，不增加公网监听端口。先为上游选择未占用的回环端口，再在 `dalanshu-test.conf` 中增加唯一前缀：
+
+```nginx
+location = /dalanshu/<service> {
+    return 301 /dalanshu/<service>/;
+}
+
+location /dalanshu/<service>/ {
+    proxy_pass http://127.0.0.1:<port>/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+}
+```
+
+`proxy_pass` 的末尾斜杠会去掉外部 location 前缀。若上游必须保留固定前缀，例如 `/api/`，则写成 `proxy_pass http://127.0.0.1:<port>/api/;`。静态 SPA 还必须让构建工具的 base 与外部路径完全一致，再使用独立 `alias` 和 `try_files`，不能让两个应用共享同一个静态目录。
+
+### 11.4 验证和回滚
+
+修改 Nginx 前先创建时间戳备份：
+
+```bash
+CONF=/www/server/panel/vhost/nginx/dalanshu-test.conf
+BACKUP="${CONF}.bak.$(date +%Y%m%d-%H%M%S)"
+cp -a "$CONF" "$BACKUP"
+```
+
+只在配置检查通过后 reload：
+
+```bash
+/www/server/nginx/sbin/nginx -t
+/www/server/nginx/sbin/nginx -s reload
+```
+
+本机至少执行：
+
+```bash
+curl -fsS -o /dev/null http://127.0.0.1:18088/dalanshu/
+curl -fsS -o /dev/null http://127.0.0.1:18088/dalanshu/admin/
+curl -fsS -o /dev/null http://127.0.0.1:18088/dalanshu/admin-api/auth/code
+curl -fsS -o /dev/null 'http://127.0.0.1:18088/dalanshu/auth?tab=register'
+curl -fsS -o /dev/null http://127.0.0.1:18088/dalanshu/api/v1/auth/code
+curl -fsS -o /dev/null http://127.0.0.1:56013/
+systemctl is-active dalanshu-test-backend.service dalanshu-test-web.service
+tailscale funnel status
+```
+
+再从独立客户端将 `127.0.0.1:18088` 换为实际 Funnel 域名执行相同检查，并用浏览器确认管理端登录页加载、静态资源 URL 均以 `/dalanshu/admin/` 开头。
+
+Nginx 检查或 reload 失败时立即恢复：
+
+```bash
+cp -a "$BACKUP" "$CONF"
+/www/server/nginx/sbin/nginx -t
+/www/server/nginx/sbin/nginx -s reload
+```
+
+若只需回滚管理端静态产物，将 `admin/dist` 恢复为上一个已验证目录即可；不要切换整个 `current` 链接，除非后端和用户端也需要一起回滚。回滚后必须重新执行上述 6 个 HTTP 检查，并确认 `56013` 仍为 `200`。

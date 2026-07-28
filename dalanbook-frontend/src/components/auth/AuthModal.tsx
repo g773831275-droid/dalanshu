@@ -6,22 +6,28 @@ import { Eye, EyeOff, Loader2, X } from "lucide-react";
 import { authStore, useAuthModal, type AuthUser } from "@/lib/authStore";
 import {
     getCaptcha,
-    loginWithEmail,
-    registerWithEmail,
-    sendEmailCode,
+    loginWithPhone,
+    registerWithPhone,
+    sendSmsCode,
     type Captcha,
 } from "@/lib/authApi";
 
 type Tab = "login" | "register";
 
-const emailLoginSchema = z.object({
-    email: z.string().trim().email("请输入正确的邮箱"),
+const phoneLoginSchema = z.object({
+    phonenumber: z
+        .string()
+        .trim()
+        .regex(/^1[3-9]\d{9}$/, "请输入正确的手机号"),
     password: z.string().min(6, "密码至少 6 位").max(64),
 });
-const emailRegisterSchema = z
+const phoneRegisterSchema = z
     .object({
-        email: z.string().trim().email("请输入正确的邮箱"),
-        emailCode: z.string().regex(/^\d{6}$/, "邮箱验证码为 6 位数字"),
+        phonenumber: z
+            .string()
+            .trim()
+            .regex(/^1[3-9]\d{9}$/, "请输入正确的手机号"),
+        smsCode: z.string().regex(/^\d{6}$/, "短信验证码为 6 位数字"),
         password: z.string().min(8, "密码至少 8 位").max(30),
         confirm: z.string(),
         agree: z.literal(true, { message: "请阅读并同意用户协议" }),
@@ -94,7 +100,7 @@ export function AuthModal() {
                 </button>
 
                 <h2 className="text-[20px] font-semibold tracking-[-0.02em] text-foreground">
-                    {tab === "login" ? "登录大蓝书" : "加入大蓝书"}
+                    {tab === "login" ? "登录大蓝岛" : "加入大蓝岛"}
                 </h2>
                 <p className="mt-1 text-[13px] text-text-secondary">
                     {state.action
@@ -123,7 +129,7 @@ export function AuthModal() {
                 </div>
 
                 <div className="mt-4">
-                    {tab === "login" ? <EmailLoginForm /> : <EmailRegisterForm />}
+                    {tab === "login" ? <PhoneLoginForm /> : <PhoneRegisterForm />}
                 </div>
 
                 <p className="mt-4 text-center text-[11.5px] leading-relaxed text-text-tertiary">
@@ -203,9 +209,9 @@ function SubmitBtn({ loading, children }: { loading: boolean; children: React.Re
     );
 }
 
-function EmailLoginForm() {
+function PhoneLoginForm() {
     const after = useAfterAuth();
-    const [values, setValues] = useState({ email: "", password: "" });
+    const [values, setValues] = useState({ phonenumber: "", password: "" });
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [showPwd, setShowPwd] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -231,7 +237,7 @@ function EmailLoginForm() {
             className="space-y-3"
             onSubmit={async (e) => {
                 e.preventDefault();
-                const r = emailLoginSchema.safeParse(values);
+                const r = phoneLoginSchema.safeParse(values);
                 if (!r.success) {
                     const errs: Record<string, string> = {};
                     for (const i of r.error.issues) errs[String(i.path[0])] = i.message;
@@ -245,7 +251,7 @@ function EmailLoginForm() {
                 setErrors({});
                 setLoading(true);
                 try {
-                    const user = await loginWithEmail(values.email, values.password, {
+                    const user = await loginWithPhone(values.phonenumber, values.password, {
                         uuid: captcha?.uuid,
                         code: captchaCode,
                     });
@@ -260,13 +266,17 @@ function EmailLoginForm() {
                 }
             }}
         >
-            <Field label="邮箱" error={errors.email}>
+            <Field label="手机号" error={errors.phonenumber}>
                 <input
                     className={inputCls}
-                    placeholder="you@dalanbook.com"
-                    value={values.email}
-                    onChange={(e) => setValues((v) => ({ ...v, email: e.target.value }))}
-                    autoComplete="username"
+                    placeholder="请输入 11 位手机号"
+                    value={values.phonenumber}
+                    onChange={(e) =>
+                        setValues((v) => ({ ...v, phonenumber: e.target.value.replace(/\D/g, "") }))
+                    }
+                    inputMode="tel"
+                    maxLength={11}
+                    autoComplete="tel"
                 />
             </Field>
             <Field label="密码" error={errors.password}>
@@ -327,11 +337,11 @@ function CodeButton({
     );
 }
 
-function EmailRegisterForm() {
+function PhoneRegisterForm() {
     const after = useAfterAuth();
     const [values, setValues] = useState({
-        email: "",
-        emailCode: "",
+        phonenumber: "",
+        smsCode: "",
         password: "",
         confirm: "",
         agree: false,
@@ -340,50 +350,28 @@ function EmailRegisterForm() {
     const [showPwd, setShowPwd] = useState(false);
     const [loading, setLoading] = useState(false);
     const [sending, setSending] = useState(false);
-    const [captcha, setCaptcha] = useState<Captcha | null>(null);
-    const [captchaCode, setCaptchaCode] = useState("");
     const cd = useCountdown();
 
-    const refreshCaptcha = () => {
-        setCaptchaCode("");
-        void getCaptcha()
-            .then(setCaptcha)
-            .catch((error) =>
-                setErrors((current) => ({
-                    ...current,
-                    form: error instanceof Error ? error.message : "验证码加载失败",
-                })),
-            );
-    };
-
-    useEffect(refreshCaptcha, []);
-
-    const requestEmailCode = async () => {
-        const email = z.string().trim().email().safeParse(values.email);
-        if (!email.success) {
-            setErrors({ email: "请输入正确的邮箱" });
-            return;
-        }
-        if (captcha?.captchaEnabled && !captchaCode) {
-            setErrors({ captcha: "请先输入图形验证码" });
+    const requestSmsCode = async () => {
+        const phone = z
+            .string()
+            .trim()
+            .regex(/^1[3-9]\d{9}$/)
+            .safeParse(values.phonenumber);
+        if (!phone.success) {
+            setErrors({ phonenumber: "请输入正确的手机号" });
             return;
         }
         setSending(true);
         setErrors({});
         try {
-            const devCode = await sendEmailCode({
-                email: values.email.trim(),
-                purpose: "register",
-                uuid: captcha?.uuid,
-                code: captchaCode,
-            });
+            const devCode = await sendSmsCode(values.phonenumber);
             if (devCode) {
-                setValues((current) => ({ ...current, emailCode: devCode }));
+                setValues((current) => ({ ...current, smsCode: devCode }));
             }
             cd.start();
         } catch (error) {
             setErrors({ form: error instanceof Error ? error.message : "验证码发送失败" });
-            refreshCaptcha();
         } finally {
             setSending(false);
         }
@@ -394,7 +382,7 @@ function EmailRegisterForm() {
             className="space-y-3"
             onSubmit={async (e) => {
                 e.preventDefault();
-                const r = emailRegisterSchema.safeParse(values);
+                const r = phoneRegisterSchema.safeParse(values);
                 if (!r.success) {
                     const errs: Record<string, string> = {};
                     for (const i of r.error.issues) errs[String(i.path[0])] = i.message;
@@ -404,9 +392,9 @@ function EmailRegisterForm() {
                 setErrors({});
                 setLoading(true);
                 try {
-                    const user = await registerWithEmail({
-                        email: values.email,
-                        emailCode: values.emailCode,
+                    const user = await registerWithPhone({
+                        phonenumber: values.phonenumber,
+                        smsCode: values.smsCode,
                         password: values.password,
                     });
                     after(user);
@@ -419,42 +407,39 @@ function EmailRegisterForm() {
                 }
             }}
         >
-            <Field label="邮箱" error={errors.email}>
+            <Field label="手机号" error={errors.phonenumber}>
                 <input
                     className={inputCls}
-                    placeholder="you@dalanbook.com"
-                    value={values.email}
-                    onChange={(e) => setValues((v) => ({ ...v, email: e.target.value }))}
-                    autoComplete="email"
+                    placeholder="请输入 11 位手机号"
+                    value={values.phonenumber}
+                    onChange={(e) =>
+                        setValues((v) => ({ ...v, phonenumber: e.target.value.replace(/\D/g, "") }))
+                    }
+                    inputMode="tel"
+                    maxLength={11}
+                    autoComplete="tel"
                 />
             </Field>
-            <CaptchaField
-                captcha={captcha}
-                value={captchaCode}
-                onChange={setCaptchaCode}
-                onRefresh={refreshCaptcha}
-                error={errors.captcha}
-            />
-            <Field label="邮箱验证码" error={errors.emailCode}>
+            <Field label="短信验证码" error={errors.smsCode}>
                 <div className="relative">
                     <input
                         className={inputCls + " pr-28"}
                         placeholder="6 位数字"
                         inputMode="numeric"
                         maxLength={6}
-                        value={values.emailCode}
+                        value={values.smsCode}
                         onChange={(event) =>
                             setValues((current) => ({
                                 ...current,
-                                emailCode: event.target.value.replace(/\D/g, ""),
+                                smsCode: event.target.value.replace(/\D/g, ""),
                             }))
                         }
                         autoComplete="one-time-code"
                     />
                     <CodeButton
-                        disabled={sending || !values.email.includes("@")}
+                        disabled={sending || !/^1[3-9]\d{9}$/.test(values.phonenumber)}
                         left={cd.left}
-                        onSend={() => void requestEmailCode()}
+                        onSend={() => void requestSmsCode()}
                     />
                 </div>
             </Field>

@@ -79,27 +79,27 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         meta: [
             { charSet: "utf-8" },
             { name: "viewport", content: "width=device-width, initial-scale=1" },
-            { title: "大蓝书 · 兴趣圈层与成长互助社区" },
+            { title: "大蓝岛 · 兴趣圈层与成长互助社区" },
             {
                 name: "description",
                 content:
-                    "大蓝书是面向年轻用户的兴趣圈层与成长互助社区，围绕职场成长、AI 工具、健身运动、数码装备和男士生活等主题分享真实经验、提问与讨论。",
+                    "大蓝岛是面向年轻用户的兴趣圈层与成长互助社区，围绕职场成长、AI 工具、健身运动、数码装备和男士生活等主题分享真实经验、提问与讨论。",
             },
-            { property: "og:title", content: "大蓝书 · 兴趣圈层与成长互助社区" },
+            { property: "og:title", content: "大蓝岛 · 兴趣圈层与成长互助社区" },
             {
                 property: "og:description",
                 content:
-                    "大蓝书是面向年轻用户的兴趣圈层与成长互助社区，围绕职场成长、AI 工具、健身运动、数码装备和男士生活等主题分享真实经验、提问与讨论。",
+                    "大蓝岛是面向年轻用户的兴趣圈层与成长互助社区，围绕职场成长、AI 工具、健身运动、数码装备和男士生活等主题分享真实经验、提问与讨论。",
             },
             { property: "og:type", content: "website" },
-            { property: "og:site_name", content: "大蓝书" },
+            { property: "og:site_name", content: "大蓝岛" },
             { name: "twitter:card", content: "summary_large_image" },
             { name: "theme-color", content: "#F7F7F5" },
-            { name: "twitter:title", content: "大蓝书 · 兴趣圈层与成长互助社区" },
+            { name: "twitter:title", content: "大蓝岛 · 兴趣圈层与成长互助社区" },
             {
                 name: "twitter:description",
                 content:
-                    "大蓝书是面向年轻用户的兴趣圈层与成长互助社区，围绕职场成长、AI 工具、健身运动、数码装备和男士生活等主题分享真实经验、提问与讨论。",
+                    "大蓝岛是面向年轻用户的兴趣圈层与成长互助社区，围绕职场成长、AI 工具、健身运动、数码装备和男士生活等主题分享真实经验、提问与讨论。",
             },
             {
                 property: "og:image",
@@ -114,6 +114,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         ],
         links: [
             { rel: "stylesheet", href: appCss },
+            { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
             { rel: "preconnect", href: "https://fonts.googleapis.com" },
             {
                 rel: "preconnect",

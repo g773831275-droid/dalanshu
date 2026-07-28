@@ -25,7 +25,7 @@ import {
 } from "@/lib/dalanbookApi";
 
 export const Route = createFileRoute("/circles/$id")({
-    head: () => ({ meta: [{ title: "圈子 · 大蓝书" }] }),
+    head: () => ({ meta: [{ title: "圈子 · 大蓝岛" }] }),
     component: CircleDetail,
 });
 

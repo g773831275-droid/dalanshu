@@ -4,10 +4,10 @@ import {
     getMockCaptcha,
     getMockMyProfile,
     getMockMe,
-    loginMockWithEmail,
+    loginMockWithPhone,
     logoutMock,
-    registerMockWithEmail,
-    sendMockEmailCode,
+    registerMockWithPhone,
+    sendMockSmsCode,
     updateMockMyProfile,
 } from "@/lib/authApi.mock";
 
@@ -66,7 +66,7 @@ function shouldPromptForLogin(path: string) {
         "/api/v1/auth/refresh",
         "/api/v1/auth/logout",
         "/api/v1/auth/code",
-        "/api/v1/auth/email/code",
+        "/api/v1/auth/sms/code",
     ].some((authPath) => path.startsWith(authPath));
 }
 
@@ -181,24 +181,15 @@ export async function getCaptcha(): Promise<Captcha> {
     };
 }
 
-export async function sendEmailCode(input: {
-    email: string;
-    purpose: "register" | "recover";
-    uuid?: string;
-    code?: string;
-}): Promise<string | undefined> {
-    if (useMockApi) return sendMockEmailCode(input.email);
-    const params = new URLSearchParams({ email: input.email, purpose: input.purpose });
-    if (input.uuid) params.set("uuid", input.uuid);
-    if (input.code) params.set("code", input.code);
-    const result = await authRequest<{ devCode?: string }>(
-        `/api/v1/auth/email/code?${params.toString()}`,
-    );
-    return result?.devCode;
+export async function sendSmsCode(phonenumber: string): Promise<string | undefined> {
+    if (useMockApi) return sendMockSmsCode(phonenumber);
+    const params = new URLSearchParams({ phonenumber: phonenumber.trim() });
+    await authRequest<void>(`/api/v1/auth/sms/code?${params.toString()}`);
+    return undefined;
 }
 
-export async function loginWithEmail(
-    email: string,
+export async function loginWithPhone(
+    phonenumber: string,
     password: string,
     captcha?: {
         uuid?: string;
@@ -206,14 +197,14 @@ export async function loginWithEmail(
     },
 ): Promise<AuthUser> {
     if (useMockApi) {
-        const user = await loginMockWithEmail(email, password);
+        const user = await loginMockWithPhone(phonenumber, password);
         saveTokens({ access_token: "mock-access-token", refresh_token: "mock-refresh-token" });
         return user;
     }
     const data = await authRequest<LoginData>("/api/v1/auth/login", {
         method: "POST",
         body: JSON.stringify({
-            account: email.trim().toLowerCase(),
+            account: phonenumber.trim(),
             password,
             clientId: CLIENT_ID,
             grantType: "password",
@@ -227,21 +218,21 @@ export async function loginWithEmail(
     return user;
 }
 
-export async function registerWithEmail(input: {
-    email: string;
-    emailCode: string;
+export async function registerWithPhone(input: {
+    phonenumber: string;
+    smsCode: string;
     password: string;
 }): Promise<AuthUser> {
     if (useMockApi) {
-        const user = await registerMockWithEmail(input);
+        const user = await registerMockWithPhone(input);
         saveTokens({ access_token: "mock-access-token", refresh_token: "mock-refresh-token" });
         return user;
     }
     const data = await authRequest<LoginData>("/api/v1/auth/register", {
         method: "POST",
         body: JSON.stringify({
-            email: input.email.trim().toLowerCase(),
-            emailCode: input.emailCode,
+            phonenumber: input.phonenumber.trim(),
+            smsCode: input.smsCode,
             password: input.password,
             clientId: CLIENT_ID,
             grantType: "password",

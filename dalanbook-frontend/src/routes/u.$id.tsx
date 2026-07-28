@@ -45,15 +45,15 @@ export const Route = createFileRoute("/u/$id")({
     },
     head: ({ loaderData }) => {
         if (!loaderData) {
-            return { meta: [{ title: "用户 · 大蓝书" }, { name: "robots", content: "noindex" }] };
+            return { meta: [{ title: "用户 · 大蓝岛" }, { name: "robots", content: "noindex" }] };
         }
         const { user } = loaderData;
-        if (!user) return { meta: [{ title: "我的主页 · 大蓝书" }] };
+        if (!user) return { meta: [{ title: "我的主页 · 大蓝岛" }] };
         return {
             meta: [
-                { title: `${user.nickname} · 大蓝书` },
+                { title: `${user.nickname} · 大蓝岛` },
                 { name: "description", content: user.bio },
-                { property: "og:title", content: `${user.nickname} · 大蓝书` },
+                { property: "og:title", content: `${user.nickname} · 大蓝岛` },
                 { property: "og:description", content: user.bio },
             ],
         };

@@ -212,7 +212,7 @@ aliyun-sms:
   sign: ${DALANSHU_ALIYUN_SMS_SIGN:}
   # SendSmsVerifyCode 的 TemplateCode，赠送模板可填 100001。
   register-template-code: ${DALANSHU_ALIYUN_SMS_REGISTER_TEMPLATE_CODE:}
-  template-param: ${DALANSHU_ALIYUN_SMS_TEMPLATE_PARAM:{"code":"123456","min":"5"}}
+  template-param: ${DALANSHU_ALIYUN_SMS_TEMPLATE_PARAM:{"code":"##code##","min":"5"}}
   code-type: ${DALANSHU_ALIYUN_SMS_CODE_TYPE:1}
   code-length: ${DALANSHU_ALIYUN_SMS_CODE_LENGTH:6}
   valid-time: ${DALANSHU_ALIYUN_SMS_VALID_TIME:300}

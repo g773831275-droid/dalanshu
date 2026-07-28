@@ -184,9 +184,9 @@ try (InputStream logo = Files.newInputStream(Path.of("/safe/path/logo.png"))) {
 
 当前工具类会在添加内嵌图片后关闭传入的流，调用方不要在发送后继续复用该流。仍建议调用方使用 `try-with-resources` 明确资源生命周期。
 
-## 8. 注册和找回密码验证码
+## 8. 找回密码邮箱验证码
 
-现有验证码发送入口位于 `CaptchaController#emailCodeImpl`，核心调用如下：
+兼容账户的找回密码邮箱验证码发送入口位于 `CaptchaController#emailCodeImpl`，核心调用如下：
 
 ```java
 MailUtils.sendText(
@@ -272,5 +272,5 @@ test -s ~/.config/dalanshu/mail.properties && echo "SMTP 配置文件已创建"
 - 工具类：`org.dromara.common.mail.utils.MailUtils`
 - 自动配置：`org.dromara.common.mail.config.MailConfig`
 - 配置属性：`org.dromara.common.mail.config.properties.MailProperties`
-- 注册验证码：`org.dromara.web.controller.CaptchaController#emailCodeImpl`
+- 找回密码验证码：`org.dromara.web.controller.CaptchaController#emailCodeImpl`
 - 基础示例：`org.dromara.demo.controller.MailSendController`
