@@ -3,7 +3,7 @@ import type { MyProfile, UpdateProfileInput } from "@/lib/authApi";
 
 type MockAccount = {
     user: AuthUser;
-    email: string;
+    phonenumber: string;
     password: string;
 };
 
@@ -24,60 +24,60 @@ let currentProfile: MyProfile = {
     latestDevice: null,
 };
 
-accounts.set("demo@dalanbook.com", {
-    email: "demo@dalanbook.com",
+accounts.set("13800138000", {
+    phonenumber: "13800138000",
     password: "dalanbook123",
-    user: { id: "mock-user-demo", name: "大蓝书用户" },
+    user: { id: "mock-user-demo", name: "大蓝岛用户" },
 });
 
 function delay<T>(value: T): Promise<T> {
     return new Promise((resolve) => globalThis.setTimeout(() => resolve(value), 180));
 }
 
-function normalizeEmail(email: string): string {
-    return email.trim().toLowerCase();
+function normalizePhone(phonenumber: string): string {
+    return phonenumber.trim();
 }
 
 export function getMockCaptcha() {
     return delay({ captchaEnabled: false });
 }
 
-export function sendMockEmailCode(email: string): Promise<string> {
-    const normalized = normalizeEmail(email);
-    if (!/^\S+@\S+\.\S+$/.test(normalized)) {
-        return Promise.reject(new Error("请输入正确的邮箱"));
+export function sendMockSmsCode(phonenumber: string): Promise<string> {
+    const normalized = normalizePhone(phonenumber);
+    if (!/^1[3-9]\d{9}$/.test(normalized)) {
+        return Promise.reject(new Error("请输入正确的手机号"));
     }
     return delay("123456");
 }
 
-export function loginMockWithEmail(email: string, password: string): Promise<AuthUser> {
-    const account = accounts.get(normalizeEmail(email));
+export function loginMockWithPhone(phonenumber: string, password: string): Promise<AuthUser> {
+    const account = accounts.get(normalizePhone(phonenumber));
     if (!account || account.password !== password) {
-        return Promise.reject(new Error("邮箱或密码错误"));
+        return Promise.reject(new Error("手机号或密码错误"));
     }
     currentUser = account.user;
     return delay({ ...account.user });
 }
 
-export function registerMockWithEmail(input: {
-    email: string;
-    emailCode: string;
+export function registerMockWithPhone(input: {
+    phonenumber: string;
+    smsCode: string;
     password: string;
 }): Promise<AuthUser> {
-    const email = normalizeEmail(input.email);
-    if (!/^\S+@\S+\.\S+$/.test(email)) {
-        return Promise.reject(new Error("请输入正确的邮箱"));
+    const phonenumber = normalizePhone(input.phonenumber);
+    if (!/^1[3-9]\d{9}$/.test(phonenumber)) {
+        return Promise.reject(new Error("请输入正确的手机号"));
     }
-    if (accounts.has(email)) return Promise.reject(new Error("该邮箱已被注册"));
-    if (input.emailCode !== "123456") return Promise.reject(new Error("邮箱验证码错误"));
+    if (accounts.has(phonenumber)) return Promise.reject(new Error("该手机号已被注册"));
+    if (input.smsCode !== "123456") return Promise.reject(new Error("短信验证码错误"));
     if (input.password.length < 8 || input.password.length > 30) {
         return Promise.reject(new Error("密码长度必须为 8～30 位"));
     }
     const user = {
         id: `mock-user-${Date.now()}`,
-        name: email.split("@")[0] || "大蓝书用户",
+        name: `蓝岛用户${phonenumber.slice(-4)}`,
     };
-    accounts.set(email, { email, password: input.password, user });
+    accounts.set(phonenumber, { phonenumber, password: input.password, user });
     currentUser = user;
     return delay({ ...user });
 }

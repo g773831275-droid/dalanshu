@@ -85,7 +85,7 @@ const placements: HomePlacementsResponse = {
     },
     pinnedNotice: {
         id: "mock-notice-release",
-        title: "大蓝书首页运营位已上线",
+        title: "大蓝岛首页运营位已上线",
         summary: "欢迎用置顶公告和广告弹窗，把重要内容送到首页。",
         content:
             "首页运营位支持排期、优先级和手动上下线。广告图片、公告正文与站内链接都会经过保存校验。",

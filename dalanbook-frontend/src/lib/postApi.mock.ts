@@ -104,7 +104,7 @@ function seedComments(postId: string, postTitle: string): ApiComment[] {
         ];
     }
     return [
-        comment(`mock-comment-${postId}-1`, "蓝书用户", `这篇《${postTitle}》很有参考价值。`, 52),
+        comment(`mock-comment-${postId}-1`, "蓝岛用户", `这篇《${postTitle}》很有参考价值。`, 52),
     ];
 }
 

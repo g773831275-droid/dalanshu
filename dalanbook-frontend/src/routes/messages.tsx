@@ -23,7 +23,7 @@ import {
 const PAGE_SIZE = 20;
 
 export const Route = createFileRoute("/messages")({
-    head: () => ({ meta: [{ title: "消息 · 大蓝书" }] }),
+    head: () => ({ meta: [{ title: "消息 · 大蓝岛" }] }),
     component: MessagesPage,
 });
 

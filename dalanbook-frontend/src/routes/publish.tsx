@@ -110,7 +110,7 @@ function getVideoDuration(file: File): Promise<number> {
 
 export const Route = createFileRoute("/publish")({
     head: () => ({
-        meta: [{ title: "发布帖子 · 大蓝书" }, { name: "robots", content: "noindex" }],
+        meta: [{ title: "发布帖子 · 大蓝岛" }, { name: "robots", content: "noindex" }],
     }),
     component: PublishPage,
 });

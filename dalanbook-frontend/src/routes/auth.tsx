@@ -7,9 +7,9 @@ import { AdaptiveImage } from "@/components/ui/adaptive-image";
 import { authStore } from "@/lib/authStore";
 import {
     getCaptcha,
-    loginWithEmail,
-    registerWithEmail,
-    sendEmailCode,
+    loginWithPhone,
+    registerWithPhone,
+    sendSmsCode,
     type Captcha,
 } from "@/lib/authApi";
 import cover from "@/assets/cover-ai-desk.jpg";
@@ -22,20 +22,26 @@ const searchSchema = z.object({
 export const Route = createFileRoute("/auth")({
     validateSearch: (s) => searchSchema.parse(s),
     head: () => ({
-        meta: [{ title: "登录 / 注册 · 大蓝书" }, { name: "robots", content: "noindex" }],
+        meta: [{ title: "登录 / 注册 · 大蓝岛" }, { name: "robots", content: "noindex" }],
     }),
     component: AuthPage,
 });
 
 const loginSchema = z.object({
-    email: z.string().trim().email("请输入正确的邮箱").max(120),
+    phonenumber: z
+        .string()
+        .trim()
+        .regex(/^1[3-9]\d{9}$/, "请输入正确的手机号"),
     password: z.string().min(6, "密码至少 6 位").max(64),
 });
 
 const registerSchema = z
     .object({
-        email: z.string().trim().email("邮箱格式不正确").max(120),
-        emailCode: z.string().regex(/^\d{6}$/, "邮箱验证码为 6 位数字"),
+        phonenumber: z
+            .string()
+            .trim()
+            .regex(/^1[3-9]\d{9}$/, "请输入正确的手机号"),
+        smsCode: z.string().regex(/^\d{6}$/, "短信验证码为 6 位数字"),
         password: z.string().min(8, "密码至少 8 位").max(30),
         confirm: z.string(),
         agree: z.literal(true, { message: "请阅读并同意用户协议" }),
@@ -81,7 +87,7 @@ function AuthPage() {
                             找到和你做同一件事的人。
                         </h2>
                         <p className="mt-3 text-[14px] leading-relaxed text-white/80">
-                            在大蓝书，加入真实的兴趣圈层，读到别人不吹不虚的经验。
+                            在大蓝岛，加入真实的兴趣圈层，读到别人不吹不虚的经验。
                         </p>
                         <div className="mt-8 flex items-center gap-3">
                             <div className="flex -space-x-2">
@@ -124,7 +130,7 @@ function AuthPage() {
 
                     <div className="mx-auto mt-8 flex w-full max-w-[400px] flex-1 flex-col md:mt-16">
                         <h1 className="text-[26px] font-semibold tracking-[-0.02em] text-foreground">
-                            {tab === "login" ? "欢迎回来" : "加入大蓝书"}
+                            {tab === "login" ? "欢迎回来" : "加入大蓝岛"}
                         </h1>
                         <p className="mt-1.5 text-[13.5px] text-text-secondary">
                             {tab === "login"
@@ -232,7 +238,7 @@ function CaptchaInput({
 function LoginForm() {
     const navigate = useNavigate();
     const search = Route.useSearch();
-    const [values, setValues] = useState({ email: "", password: "" });
+    const [values, setValues] = useState({ phonenumber: "", password: "" });
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [showPwd, setShowPwd] = useState(false);
     const [remember, setRemember] = useState(true);
@@ -270,7 +276,7 @@ function LoginForm() {
         setErrors({});
         setLoading(true);
         try {
-            const user = await loginWithEmail(values.email, values.password, {
+            const user = await loginWithPhone(values.phonenumber, values.password, {
                 uuid: captcha?.uuid,
                 code: captchaCode,
             });
@@ -286,13 +292,17 @@ function LoginForm() {
 
     return (
         <form onSubmit={onSubmit} className="mt-5 space-y-3">
-            <Field label="邮箱" error={errors.email}>
+            <Field label="手机号" error={errors.phonenumber}>
                 <input
                     className={inputCls}
-                    placeholder="you@dalanbook.com"
-                    value={values.email}
-                    onChange={(e) => setValues((v) => ({ ...v, email: e.target.value }))}
-                    autoComplete="email"
+                    placeholder="请输入 11 位手机号"
+                    value={values.phonenumber}
+                    onChange={(e) =>
+                        setValues((v) => ({ ...v, phonenumber: e.target.value.replace(/\D/g, "") }))
+                    }
+                    inputMode="tel"
+                    maxLength={11}
+                    autoComplete="tel"
                 />
             </Field>
             <CaptchaInput
@@ -360,8 +370,8 @@ function RegisterForm() {
     const navigate = useNavigate();
     const search = Route.useSearch();
     const [values, setValues] = useState({
-        email: "",
-        emailCode: "",
+        phonenumber: "",
+        smsCode: "",
         password: "",
         confirm: "",
         agree: false,
@@ -371,22 +381,6 @@ function RegisterForm() {
     const [loading, setLoading] = useState(false);
     const [sending, setSending] = useState(false);
     const [countdown, setCountdown] = useState(0);
-    const [captcha, setCaptcha] = useState<Captcha | null>(null);
-    const [captchaCode, setCaptchaCode] = useState("");
-
-    const refreshCaptcha = () => {
-        setCaptchaCode("");
-        void getCaptcha()
-            .then(setCaptcha)
-            .catch((error) =>
-                setErrors((current) => ({
-                    ...current,
-                    form: error instanceof Error ? error.message : "验证码加载失败",
-                })),
-            );
-    };
-
-    useEffect(refreshCaptcha, []);
     useEffect(() => {
         if (countdown <= 0) return;
         const timer = window.setTimeout(() => setCountdown((value) => value - 1), 1000);
@@ -403,32 +397,26 @@ function RegisterForm() {
         return s;
     }, [values.password]);
 
-    async function requestEmailCode() {
-        const email = z.string().trim().email().safeParse(values.email);
-        if (!email.success) {
-            setErrors({ email: "请输入正确的邮箱" });
-            return;
-        }
-        if (captcha?.captchaEnabled && !captchaCode) {
-            setErrors({ captcha: "请先输入图形验证码" });
+    async function requestSmsCode() {
+        const phone = z
+            .string()
+            .trim()
+            .regex(/^1[3-9]\d{9}$/)
+            .safeParse(values.phonenumber);
+        if (!phone.success) {
+            setErrors({ phonenumber: "请输入正确的手机号" });
             return;
         }
         setSending(true);
         setErrors({});
         try {
-            const devCode = await sendEmailCode({
-                email: values.email,
-                purpose: "register",
-                uuid: captcha?.uuid,
-                code: captchaCode,
-            });
+            const devCode = await sendSmsCode(values.phonenumber);
             if (devCode) {
-                setValues((current) => ({ ...current, emailCode: devCode }));
+                setValues((current) => ({ ...current, smsCode: devCode }));
             }
             setCountdown(60);
         } catch (error) {
             setErrors({ form: error instanceof Error ? error.message : "验证码发送失败" });
-            refreshCaptcha();
         } finally {
             setSending(false);
         }
@@ -446,9 +434,9 @@ function RegisterForm() {
         setErrors({});
         setLoading(true);
         try {
-            const user = await registerWithEmail({
-                email: values.email,
-                emailCode: values.emailCode,
+            const user = await registerWithPhone({
+                phonenumber: values.phonenumber,
+                smsCode: values.smsCode,
                 password: values.password,
             });
             authStore.set(user);
@@ -462,42 +450,41 @@ function RegisterForm() {
 
     return (
         <form onSubmit={onSubmit} className="mt-5 space-y-3">
-            <Field label="邮箱" error={errors.email}>
+            <Field label="手机号" error={errors.phonenumber}>
                 <input
                     className={inputCls}
-                    placeholder="you@dalanbook.com"
-                    value={values.email}
-                    onChange={(e) => setValues((v) => ({ ...v, email: e.target.value }))}
-                    autoComplete="email"
+                    placeholder="请输入 11 位手机号"
+                    value={values.phonenumber}
+                    onChange={(e) =>
+                        setValues((v) => ({ ...v, phonenumber: e.target.value.replace(/\D/g, "") }))
+                    }
+                    inputMode="tel"
+                    maxLength={11}
+                    autoComplete="tel"
                 />
             </Field>
-            <CaptchaInput
-                captcha={captcha}
-                value={captchaCode}
-                onChange={setCaptchaCode}
-                onRefresh={refreshCaptcha}
-                error={errors.captcha}
-            />
-            <Field label="邮箱验证码" error={errors.emailCode}>
+            <Field label="短信验证码" error={errors.smsCode}>
                 <div className="relative">
                     <input
                         className={inputCls + " pr-28"}
                         placeholder="6 位数字"
                         inputMode="numeric"
                         maxLength={6}
-                        value={values.emailCode}
+                        value={values.smsCode}
                         onChange={(event) =>
                             setValues((current) => ({
                                 ...current,
-                                emailCode: event.target.value.replace(/\D/g, ""),
+                                smsCode: event.target.value.replace(/\D/g, ""),
                             }))
                         }
                         autoComplete="one-time-code"
                     />
                     <button
                         type="button"
-                        disabled={sending || countdown > 0 || !values.email.includes("@")}
-                        onClick={() => void requestEmailCode()}
+                        disabled={
+                            sending || countdown > 0 || !/^1[3-9]\d{9}$/.test(values.phonenumber)
+                        }
+                        onClick={() => void requestSmsCode()}
                         className="absolute right-1.5 top-1/2 h-8 -translate-y-1/2 rounded-[8px] px-3 text-[12px] font-medium text-foreground hover:bg-black/[0.04] disabled:text-text-tertiary"
                     >
                         {countdown > 0
